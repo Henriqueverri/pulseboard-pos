@@ -62,6 +62,8 @@ public class SecurityConfig {
                     .hasRole(ADMIN)
                     .requestMatchers(HttpMethod.POST, "/api/orders/*/refund")
                     .hasRole(ADMIN)
+                    .requestMatchers("/api/integration/**")
+                    .hasRole(ADMIN)
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(

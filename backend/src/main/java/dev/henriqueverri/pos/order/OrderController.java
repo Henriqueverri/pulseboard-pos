@@ -64,7 +64,7 @@ public class OrderController {
   }
 
   @GetMapping("/{id}")
-  @Operation(summary = "Detalha um pedido com seus itens")
+  @Operation(summary = "Detalha um pedido com seus itens e eventos de integração")
   public OrderResponse get(@PathVariable UUID id) {
     return service.get(id);
   }

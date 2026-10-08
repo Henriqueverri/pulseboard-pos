@@ -3,6 +3,9 @@ import type {
   CreateOrderInput,
   Customer,
   CustomerInput,
+  IntegrationEvent,
+  IntegrationEventStatus,
+  IntegrationHealth,
   LoginResponse,
   Order,
   OrderStatus,
@@ -61,4 +64,20 @@ export const ordersApi = {
     api.post<Order>(`/orders/${id}/pay`, { paymentMethod }),
   cancel: (id: string) => api.post<Order>(`/orders/${id}/cancel`),
   refund: (id: string) => api.post<Order>(`/orders/${id}/refund`),
+}
+
+export interface IntegrationEventFilters {
+  status?: IntegrationEventStatus
+  page?: number
+  size?: number
+}
+
+export const integrationApi = {
+  events: (filters: IntegrationEventFilters) =>
+    api.get<Page<IntegrationEvent>>(`/integration/events${query({ ...filters })}`),
+  event: (id: string) => api.get<IntegrationEvent>(`/integration/events/${id}`),
+  retry: (id: string) => api.post<IntegrationEvent>(`/integration/events/${id}/retry`),
+  retryConfigurationFailures: () =>
+    api.post<{ retried: number }>('/integration/events/retry-configuration-failures'),
+  health: () => api.get<IntegrationHealth>('/integration/health'),
 }

@@ -9,13 +9,14 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import org.hibernate.annotations.Generated;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
  * One delivery to PulseBoard, written in the same transaction as the order change. The payload is
  * the exact body to send, frozen when the event is created; delivery state only changes through the
- * worker's conditional updates in {@link OutboxRepository}.
+ * worker's conditional updates in {@link OutboxStore}.
  */
 @Entity
 @Table(name = "outbox_events")
@@ -25,6 +26,7 @@ public class OutboxEvent {
 
   @Id private UUID id;
 
+  @Generated
   @Column(insertable = false, updatable = false)
   private Long sequence;
 
@@ -46,8 +48,18 @@ public class OutboxEvent {
   @Column(nullable = false, length = 16)
   private OutboxStatus status;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "failure_kind", length = 16)
+  private FailureKind failureKind;
+
   @Column(nullable = false)
   private int attempts;
+
+  @Column(name = "attempts_at_retry", nullable = false)
+  private int attemptsAtRetry;
+
+  @Column(name = "next_attempt_at", nullable = false)
+  private Instant nextAttemptAt;
 
   @Column(name = "locked_until")
   private Instant lockedUntil;
@@ -91,6 +103,7 @@ public class OutboxEvent {
     event.status = OutboxStatus.PENDING;
     event.createdAt = now.truncatedTo(ChronoUnit.MICROS);
     event.updatedAt = event.createdAt;
+    event.nextAttemptAt = event.createdAt;
     return event;
   }
 
@@ -127,8 +140,20 @@ public class OutboxEvent {
     return status;
   }
 
+  public FailureKind getFailureKind() {
+    return failureKind;
+  }
+
   public int getAttempts() {
     return attempts;
+  }
+
+  public int getAttemptsAtRetry() {
+    return attemptsAtRetry;
+  }
+
+  public Instant getNextAttemptAt() {
+    return nextAttemptAt;
   }
 
   public Instant getLockedUntil() {

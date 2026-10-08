@@ -1,5 +1,6 @@
 package dev.henriqueverri.pos.order.dto;
 
+import dev.henriqueverri.pos.integration.dto.IntegrationEventResponse;
 import dev.henriqueverri.pos.order.Order;
 import dev.henriqueverri.pos.order.OrderItem;
 import dev.henriqueverri.pos.order.OrderStatus;
@@ -22,7 +23,8 @@ public record OrderResponse(
     Instant updatedAt,
     Instant paidAt,
     Instant canceledAt,
-    Instant refundedAt) {
+    Instant refundedAt,
+    List<IntegrationEventResponse> integrationEvents) {
 
   public record Item(
       UUID id,
@@ -45,7 +47,8 @@ public record OrderResponse(
     }
   }
 
-  public static OrderResponse from(Order order) {
+  /** {@code integrationEvents}: deliveries of this order to PulseBoard, oldest first. */
+  public static OrderResponse from(Order order, List<IntegrationEventResponse> integrationEvents) {
     return new OrderResponse(
         order.getId(),
         order.getNumber(),
@@ -59,6 +62,7 @@ public record OrderResponse(
         order.getUpdatedAt(),
         order.getPaidAt(),
         order.getCanceledAt(),
-        order.getRefundedAt());
+        order.getRefundedAt(),
+        integrationEvents);
   }
 }

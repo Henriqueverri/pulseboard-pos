@@ -1,4 +1,13 @@
-import type { Customer, Order, OrderStatus, Product, Role, User } from '../api/types'
+import type {
+  Customer,
+  IntegrationEvent,
+  IntegrationHealth,
+  Order,
+  OrderStatus,
+  Product,
+  Role,
+  User,
+} from '../api/types'
 import { centsToMoneyString, moneyToCents } from '../lib/money'
 
 /** In-memory backend state used by the MSW handlers; reset before every test. */
@@ -73,7 +82,48 @@ export function makeOrder(overrides: Partial<Order> & { status: OrderStatus }): 
         lineTotal: '159.80',
       },
     ],
+    integrationEvents: [],
     ...overrides,
+  }
+}
+
+export function makeEvent(
+  overrides: Partial<IntegrationEvent> & Pick<IntegrationEvent, 'sequence' | 'orderId'>,
+): IntegrationEvent {
+  const id = overrides.id ?? crypto.randomUUID()
+  return {
+    id,
+    orderNumber: 1001,
+    externalId: `pos:${overrides.orderId}`,
+    eventType: 'ORDER_PAID',
+    status: 'PENDING',
+    failureKind: null,
+    attempts: 0,
+    attemptsAtRetry: 0,
+    nextAttemptAt: NOW,
+    lastAttemptAt: null,
+    lastHttpStatus: null,
+    lastErrorCode: null,
+    lastError: null,
+    requestId: `pos-${id}`,
+    lastRequestId: null,
+    remoteId: null,
+    processedAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    blockedBy: null,
+    payload: { external_id: `pos:${overrides.orderId}`, status: 'paid' },
+    ...overrides,
+  }
+}
+
+function initialIntegration(): Omit<IntegrationHealth, 'pending' | 'failed'> {
+  return {
+    enabled: true,
+    pausedUntil: null,
+    targetUrl: 'http://localhost:8000/api/v1',
+    keyPrefix: 'abcdefghijkl',
+    lastSentAt: null,
   }
 }
 
@@ -82,6 +132,9 @@ export const db = {
   customers: initialCustomers(),
   orders: [] as Order[],
   nextNumber: 1001,
+  events: [] as IntegrationEvent[],
+  nextSequence: 1,
+  integration: initialIntegration(),
 }
 
 export function resetDb(): void {
@@ -89,6 +142,23 @@ export function resetDb(): void {
   db.customers = initialCustomers()
   db.orders = []
   db.nextNumber = 1001
+  db.events = []
+  db.nextSequence = 1
+  db.integration = initialIntegration()
+}
+
+/** What the outbox does on pay/refund: a PENDING event, behind any unsent one of the order. */
+export function enqueueEvent(order: Order, eventType: IntegrationEvent['eventType']): void {
+  const blocker = db.events.find((event) => event.orderId === order.id && event.status !== 'SENT')
+  db.events.push(
+    makeEvent({
+      sequence: db.nextSequence++,
+      orderId: order.id,
+      orderNumber: order.number,
+      eventType,
+      blockedBy: blocker?.sequence ?? null,
+    }),
+  )
 }
 
 export function createOrderInDb(
@@ -124,6 +194,7 @@ export function createOrderInDb(
     canceledAt: null,
     refundedAt: null,
     items: lines,
+    integrationEvents: [],
   }
   db.orders.push(order)
   return order

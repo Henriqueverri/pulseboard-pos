@@ -28,9 +28,14 @@ export function AppLayout() {
                 Clientes
               </NavLink>
               {hasRole('ADMIN') && (
-                <NavLink to="/products" className={navClass}>
-                  Produtos
-                </NavLink>
+                <>
+                  <NavLink to="/products" className={navClass}>
+                    Produtos
+                  </NavLink>
+                  <NavLink to="/integration" className={navClass}>
+                    Integração
+                  </NavLink>
+                </>
               )}
             </nav>
           </div>

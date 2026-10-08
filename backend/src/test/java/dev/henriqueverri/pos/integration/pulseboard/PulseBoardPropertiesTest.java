@@ -27,6 +27,14 @@ class PulseBoardPropertiesTest {
     assertThat(properties(true, "").toString()).contains("apiKey=<empty>");
   }
 
+  @Test
+  void exposesOnlyThePrefixOfAWellFormedKey() {
+    assertThat(properties(true, KEY).keyPrefix()).isEqualTo("abcdefghijkl");
+    assertThat(properties(true, "").keyPrefix()).isNull();
+    assertThat(properties(true, "not-a-pulseboard-key").keyPrefix()).isNull();
+    assertThat(properties(true, "pb_short_secret").keyPrefix()).isNull();
+  }
+
   private static PulseBoardProperties properties(boolean enabled, String key) {
     return new PulseBoardProperties(
         enabled,

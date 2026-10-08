@@ -1,5 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import type {
+  IntegrationEvent,
+  IntegrationHealth,
   Order,
   OrderStatus,
   OrderSummary,
@@ -8,7 +10,7 @@ import type {
   ProblemDetail,
   Role,
 } from '../api/types'
-import { createOrderInDb, db, PASSWORD, updateOrder, users } from './db'
+import { createOrderInDb, db, enqueueEvent, PASSWORD, updateOrder, users } from './db'
 
 export const TOKENS: Record<Role, string> = { ADMIN: 'admin-token', CASHIER: 'cashier-token' }
 
@@ -40,7 +42,27 @@ function page<T>(items: T[], url: URL): Page<T> {
 const unauthorized = () => problem(401, 'unauthorized', 'Autenticação necessária.')
 const forbidden = () => problem(403, 'forbidden', 'Você não tem permissão para esta operação.')
 
-function transition(id: string, from: OrderStatus, changes: Partial<Order>) {
+/** Events as the API lists them: no payload outside the detail. */
+function summaryOf(event: IntegrationEvent): IntegrationEvent {
+  return { ...event, payload: null }
+}
+
+function withEvents(order: Order): Order {
+  return {
+    ...order,
+    integrationEvents: db.events
+      .filter((event) => event.orderId === order.id)
+      .sort((a, b) => a.sequence - b.sequence)
+      .map(summaryOf),
+  }
+}
+
+function transition(
+  id: string,
+  from: OrderStatus,
+  changes: Partial<Order>,
+  event?: IntegrationEvent['eventType'],
+) {
   const order = db.orders.find((candidate) => candidate.id === id)
   if (!order) {
     return problem(404, 'not_found', 'Pedido não encontrado.')
@@ -48,7 +70,34 @@ function transition(id: string, from: OrderStatus, changes: Partial<Order>) {
   if (order.status !== from) {
     return problem(409, 'invalid_order_transition', `Pedido ${order.status} não pode mudar para ${changes.status}.`)
   }
-  return HttpResponse.json(updateOrder(id, changes))
+  const updated = updateOrder(id, changes)
+  if (event) {
+    enqueueEvent(updated, event)
+  }
+  return HttpResponse.json(withEvents(updated))
+}
+
+function health(): IntegrationHealth {
+  return {
+    ...db.integration,
+    pending: db.events.filter((event) => event.status === 'PENDING' || event.status === 'PROCESSING')
+      .length,
+    failed: db.events.filter((event) => event.status === 'FAILED').length,
+  }
+}
+
+function admin(request: Request) {
+  const role = roleOf(request)
+  return !role ? unauthorized() : role !== 'ADMIN' ? forbidden() : null
+}
+
+function requeue(event: IntegrationEvent): void {
+  Object.assign(event, {
+    status: 'PENDING',
+    failureKind: null,
+    attemptsAtRetry: event.attempts,
+    nextAttemptAt: '2026-10-07T12:05:00Z',
+  })
 }
 
 /** A small fake of the POS API with the same auth rules as the backend. */
@@ -135,6 +184,7 @@ export const handlers = [
         const summary: Partial<Order> = { ...order }
         delete summary.items
         delete summary.updatedAt
+        delete summary.integrationEvents
         return summary as OrderSummary
       })
     return HttpResponse.json(page(found, url))
@@ -143,7 +193,9 @@ export const handlers = [
   http.get('/api/orders/:id', ({ request, params }) => {
     if (!roleOf(request)) return unauthorized()
     const order = db.orders.find((candidate) => candidate.id === params.id)
-    return order ? HttpResponse.json(order) : problem(404, 'not_found', 'Pedido não encontrado.')
+    return order
+      ? HttpResponse.json(withEvents(order))
+      : problem(404, 'not_found', 'Pedido não encontrado.')
   }),
 
   http.post('/api/orders', async ({ request }) => {
@@ -164,11 +216,12 @@ export const handlers = [
   http.post('/api/orders/:id/pay', async ({ request, params }) => {
     if (!roleOf(request)) return unauthorized()
     const { paymentMethod } = (await request.json()) as { paymentMethod: PaymentMethod }
-    return transition(String(params.id), 'PENDING', {
-      status: 'PAID',
-      paymentMethod,
-      paidAt: '2026-10-07T12:01:00Z',
-    })
+    return transition(
+      String(params.id),
+      'PENDING',
+      { status: 'PAID', paymentMethod, paidAt: '2026-10-07T12:01:00Z' },
+      'ORDER_PAID',
+    )
   }),
 
   http.post('/api/orders/:id/cancel', ({ request, params }) => {
@@ -183,9 +236,57 @@ export const handlers = [
     const role = roleOf(request)
     if (!role) return unauthorized()
     if (role !== 'ADMIN') return forbidden()
-    return transition(String(params.id), 'PAID', {
-      status: 'REFUNDED',
-      refundedAt: '2026-10-07T12:02:00Z',
-    })
+    return transition(
+      String(params.id),
+      'PAID',
+      { status: 'REFUNDED', refundedAt: '2026-10-07T12:02:00Z' },
+      'ORDER_REFUNDED',
+    )
   }),
+
+  http.get('/api/integration/events', ({ request }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const url = new URL(request.url)
+    const status = url.searchParams.get('status')
+    const found = db.events
+      .filter((event) => !status || event.status === status)
+      .sort((a, b) => b.sequence - a.sequence)
+      .map(summaryOf)
+    return HttpResponse.json(page(found, url))
+  }),
+
+  http.get('/api/integration/events/:id', ({ request, params }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const event = db.events.find((candidate) => candidate.id === params.id)
+    return event ? HttpResponse.json(event) : problem(404, 'not_found', 'Evento não encontrado.')
+  }),
+
+  http.post('/api/integration/events/retry-configuration-failures', ({ request }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const failures = db.events.filter(
+      (event) => event.status === 'FAILED' && event.failureKind === 'CONFIGURATION',
+    )
+    failures.forEach(requeue)
+    db.integration.pausedUntil = null
+    return HttpResponse.json({ retried: failures.length })
+  }),
+
+  http.post('/api/integration/events/:id/retry', ({ request, params }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const event = db.events.find((candidate) => candidate.id === params.id)
+    if (!event) {
+      return problem(404, 'not_found', 'Evento não encontrado.')
+    }
+    if (event.status !== 'FAILED') {
+      return problem(409, 'integration_event_not_failed', 'Só eventos FAILED podem ser reprocessados.')
+    }
+    requeue(event)
+    return HttpResponse.json(event)
+  }),
+
+  http.get('/api/integration/health', ({ request }) => admin(request) ?? HttpResponse.json(health())),
 ]

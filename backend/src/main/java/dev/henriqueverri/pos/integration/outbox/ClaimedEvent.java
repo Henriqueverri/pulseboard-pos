@@ -7,9 +7,20 @@ import java.util.UUID;
  * works as a fencing token: results are only recorded if nobody re-claimed the event meanwhile.
  */
 public record ClaimedEvent(
-    UUID id, long sequence, UUID aggregateId, OutboxEventType type, String payload, int attempts) {
+    UUID id,
+    long sequence,
+    UUID aggregateId,
+    OutboxEventType type,
+    String payload,
+    int attempts,
+    int attemptsAtRetry) {
 
   public String requestId() {
     return "pos-" + id;
+  }
+
+  /** Attempts that count towards the limit: those since the last manual retry. */
+  public int attemptsSinceRetry() {
+    return attempts - attemptsAtRetry;
   }
 }

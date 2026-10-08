@@ -2,6 +2,7 @@ import type { RouteObject } from 'react-router'
 import { LoginPage } from '../features/auth/LoginPage'
 import { CheckoutPage } from '../features/checkout/CheckoutPage'
 import { CustomersPage } from '../features/customers/CustomersPage'
+import { IntegrationPage } from '../features/integration/IntegrationPage'
 import { OrderDetailPage } from '../features/orders/OrderDetailPage'
 import { OrdersPage } from '../features/orders/OrdersPage'
 import { ProductsPage } from '../features/products/ProductsPage'
@@ -28,6 +29,14 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth roles={['ADMIN']}>
             <ProductsPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'integration',
+        element: (
+          <RequireAuth roles={['ADMIN']}>
+            <IntegrationPage />
           </RequireAuth>
         ),
       },

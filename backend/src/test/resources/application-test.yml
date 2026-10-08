@@ -16,7 +16,8 @@ pos:
         name: Caixa de Teste
 
 pulseboard:
-  # Points to the WireMock server started by ApiIntegrationTest; a fake, test-only key.
-  api-key: pb_testprefix0_fake-test-only-key-not-a-secret-000000000
+  # Points to the WireMock server started by ApiIntegrationTest; a fake, test-only key in the
+  # pb_<12-char prefix>_<40-char secret> format.
+  api-key: pb_testprefix00_faketestonlykeynotasecret000000000000000
   connect-timeout: 2s
   read-timeout: 1s

@@ -7,13 +7,20 @@ import { Table, Td, Th } from '../../components/ui/Table'
 import { formatDateTime } from '../../lib/dates'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { formatMoney } from '../../lib/money'
+import { useAuth } from '../auth/authContext'
+import { isOpen, POLL_INTERVAL_MS } from '../integration/events'
+import { OrderIntegrationStatus } from '../integration/OrderIntegrationStatus'
 import { OrderActions } from './OrderActions'
 
 export function OrderDetailPage() {
   const { id = '' } = useParams()
+  const { hasRole } = useAuth()
   const order = useQuery({
     queryKey: ['orders', 'detail', id],
     queryFn: () => ordersApi.get(id),
+    // Follows a delivery in progress; stops once nothing is waiting.
+    refetchInterval: (query) =>
+      query.state.data?.integrationEvents.some(isOpen) ? POLL_INTERVAL_MS : false,
   })
 
   return (
@@ -103,6 +110,11 @@ export function OrderDetailPage() {
               ))}
             </tbody>
           </Table>
+
+          <OrderIntegrationStatus
+            events={order.data.integrationEvents}
+            showIntegrationLink={hasRole('ADMIN')}
+          />
         </>
       )}
     </section>

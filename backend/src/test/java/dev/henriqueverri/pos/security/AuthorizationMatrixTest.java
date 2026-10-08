@@ -150,7 +150,12 @@ class AuthorizationMatrixTest extends ApiIntegrationTest {
         Arguments.of(HttpMethod.POST, "/api/orders"),
         Arguments.of(HttpMethod.POST, "/api/orders/" + id + "/pay"),
         Arguments.of(HttpMethod.POST, "/api/orders/" + id + "/cancel"),
-        Arguments.of(HttpMethod.POST, "/api/orders/" + id + "/refund"));
+        Arguments.of(HttpMethod.POST, "/api/orders/" + id + "/refund"),
+        Arguments.of(HttpMethod.GET, "/api/integration/events"),
+        Arguments.of(HttpMethod.GET, "/api/integration/events/" + id),
+        Arguments.of(HttpMethod.POST, "/api/integration/events/" + id + "/retry"),
+        Arguments.of(HttpMethod.POST, "/api/integration/events/retry-configuration-failures"),
+        Arguments.of(HttpMethod.GET, "/api/integration/health"));
   }
 
   @ParameterizedTest(name = "{0} {1}")

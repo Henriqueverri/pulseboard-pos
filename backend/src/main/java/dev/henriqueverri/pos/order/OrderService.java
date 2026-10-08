@@ -4,6 +4,7 @@ import dev.henriqueverri.pos.catalog.Product;
 import dev.henriqueverri.pos.catalog.ProductRepository;
 import dev.henriqueverri.pos.customer.Customer;
 import dev.henriqueverri.pos.customer.CustomerRepository;
+import dev.henriqueverri.pos.integration.IntegrationService;
 import dev.henriqueverri.pos.integration.outbox.OutboxEventType;
 import dev.henriqueverri.pos.integration.outbox.OutboxService;
 import dev.henriqueverri.pos.integration.pulseboard.IngestPayloadFactory;
@@ -41,6 +42,7 @@ public class OrderService {
   private final ProductRepository products;
   private final OutboxService outbox;
   private final IngestPayloadFactory payloads;
+  private final IntegrationService integration;
   private final Clock clock;
   private final String currency;
 
@@ -50,6 +52,7 @@ public class OrderService {
       ProductRepository products,
       OutboxService outbox,
       IngestPayloadFactory payloads,
+      IntegrationService integration,
       Clock clock,
       @Value("${pos.currency}") String currency) {
     this.orders = orders;
@@ -57,6 +60,7 @@ public class OrderService {
     this.products = products;
     this.outbox = outbox;
     this.payloads = payloads;
+    this.integration = integration;
     this.clock = clock;
     this.currency = currency;
   }
@@ -88,8 +92,7 @@ public class OrderService {
 
   @Transactional(readOnly = true)
   public OrderResponse get(UUID id) {
-    return OrderResponse.from(
-        orders.findWithDetailsById(id).orElseThrow(() -> ApiException.notFound("Pedido")));
+    return response(find(id));
   }
 
   @Transactional
@@ -132,7 +135,7 @@ public class OrderService {
       throw ApiException.unprocessable(
           ErrorCodes.ORDER_TOTAL_TOO_LARGE, "O total do pedido excede o valor máximo permitido.");
     }
-    return OrderResponse.from(orders.save(order));
+    return OrderResponse.from(orders.save(order), List.of());
   }
 
   /** The order change and its outbox event commit together or not at all. */
@@ -141,14 +144,14 @@ public class OrderService {
     Order order = find(id);
     order.pay(method, clock.instant());
     outbox.enqueue(order.getId(), OutboxEventType.ORDER_PAID, payloads.orderPaid(order));
-    return OrderResponse.from(order);
+    return response(order);
   }
 
   @Transactional
   public OrderResponse cancel(UUID id) {
     Order order = find(id);
     order.cancel(clock.instant());
-    return OrderResponse.from(order);
+    return response(order);
   }
 
   @Transactional
@@ -156,7 +159,11 @@ public class OrderService {
     Order order = find(id);
     order.refund(clock.instant());
     outbox.enqueue(order.getId(), OutboxEventType.ORDER_REFUNDED, payloads.orderRefunded(order));
-    return OrderResponse.from(order);
+    return response(order);
+  }
+
+  private OrderResponse response(Order order) {
+    return OrderResponse.from(order, integration.ofOrder(order.getId()));
   }
 
   private Order find(UUID id) {

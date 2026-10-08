@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react'
-import type { OrderStatus } from '../../api/types'
-import { ORDER_STATUS_LABELS } from '../../lib/labels'
+import type { FailureKind, IntegrationEventStatus, OrderStatus } from '../../api/types'
+import {
+  FAILURE_KIND_LABELS,
+  INTEGRATION_STATUS_LABELS,
+  ORDER_STATUS_LABELS,
+} from '../../lib/labels'
 
 type Tone = 'gray' | 'green' | 'amber' | 'red' | 'blue'
 
@@ -29,4 +33,26 @@ const statusTones: Record<OrderStatus, Tone> = {
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   return <Badge tone={statusTones[status]}>{ORDER_STATUS_LABELS[status]}</Badge>
+}
+
+const integrationTones: Record<IntegrationEventStatus, Tone> = {
+  PENDING: 'amber',
+  PROCESSING: 'blue',
+  SENT: 'green',
+  FAILED: 'red',
+}
+
+export function IntegrationStatusBadge({
+  status,
+  failureKind,
+}: {
+  status: IntegrationEventStatus
+  failureKind: FailureKind | null
+}) {
+  return (
+    <Badge tone={integrationTones[status]}>
+      {INTEGRATION_STATUS_LABELS[status]}
+      {failureKind && ` (${FAILURE_KIND_LABELS[failureKind]})`}
+    </Badge>
+  )
 }

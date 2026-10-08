@@ -43,6 +43,12 @@ pos:
     batch-size: 20
     # Longer than connect + read timeouts, so a live worker never loses its claim.
     lease: 2m
+    # Transient failures: min(max-delay, base-delay * 2^(n-1)) * jitter [0.5, 1.0] between attempts,
+    # FAILED/EXHAUSTED after max-attempts. A 401 pauses the integration for configuration-pause.
+    max-attempts: ${POS_OUTBOX_MAX_ATTEMPTS:10}
+    base-delay: 10s
+    max-delay: 15m
+    configuration-pause: 15m
   security:
     jwt:
       # Required, at least 32 bytes; startup fails otherwise. Never commit a real value.

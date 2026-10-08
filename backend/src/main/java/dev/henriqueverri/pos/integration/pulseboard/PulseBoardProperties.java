@@ -2,6 +2,8 @@ package dev.henriqueverri.pos.integration.pulseboard;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
@@ -18,8 +20,19 @@ public record PulseBoardProperties(
     @DefaultValue("10s") Duration connectTimeout,
     @DefaultValue("30s") Duration readTimeout) {
 
+  private static final Pattern KEY_FORMAT = Pattern.compile("pb_([A-Za-z0-9]{12})_[A-Za-z0-9]{40}");
+
   public boolean isActive() {
     return enabled && !apiKey.isBlank();
+  }
+
+  /**
+   * The public part of a well-formed key ({@code pb_<prefix>_<secret>}), as PulseBoard shows it.
+   * Null for an empty or malformed key, so no fragment of an unexpected value is ever exposed.
+   */
+  public String keyPrefix() {
+    Matcher matcher = KEY_FORMAT.matcher(apiKey.trim());
+    return matcher.matches() ? matcher.group(1) : null;
   }
 
   /** The API key must never reach logs, so it is left out of the generated representation. */

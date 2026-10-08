@@ -18,6 +18,7 @@ public final class ErrorCodes {
   public static final String ORDER_TOTAL_TOO_LARGE = "order_total_too_large";
   public static final String INVALID_ORDER_TRANSITION = "invalid_order_transition";
   public static final String CONCURRENT_MODIFICATION = "concurrent_modification";
+  public static final String INTEGRATION_EVENT_NOT_FAILED = "integration_event_not_failed";
   public static final String INTERNAL_ERROR = "internal_error";
 
   private ErrorCodes() {}

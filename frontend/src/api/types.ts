@@ -93,6 +93,55 @@ export interface OrderSummary {
 export interface Order extends OrderSummary {
   items: OrderItem[]
   updatedAt: string
+  /** Deliveries of this order to PulseBoard, oldest first. */
+  integrationEvents: IntegrationEvent[]
+}
+
+export type IntegrationEventType = 'ORDER_PAID' | 'ORDER_REFUNDED'
+
+export type IntegrationEventStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED'
+
+/** Why an event is FAILED; none is retried automatically. */
+export type FailureKind = 'PERMANENT' | 'EXHAUSTED' | 'CONFIGURATION'
+
+/** One outbox event. `payload` (the exact body sent to PulseBoard) only comes in the detail. */
+export interface IntegrationEvent {
+  id: string
+  sequence: number
+  orderId: string
+  orderNumber: number | null
+  externalId: string
+  eventType: IntegrationEventType
+  status: IntegrationEventStatus
+  failureKind: FailureKind | null
+  attempts: number
+  attemptsAtRetry: number
+  nextAttemptAt: string | null
+  lastAttemptAt: string | null
+  lastHttpStatus: number | null
+  lastErrorCode: string | null
+  lastError: string | null
+  /** X-Request-Id sent on every attempt of this event. */
+  requestId: string
+  /** X-Request-Id of PulseBoard's last response. */
+  lastRequestId: string | null
+  remoteId: string | null
+  processedAt: string | null
+  createdAt: string
+  updatedAt: string
+  /** Sequence of the earlier unsent event of the same order holding this one back. */
+  blockedBy: number | null
+  payload: unknown
+}
+
+export interface IntegrationHealth {
+  enabled: boolean
+  pausedUntil: string | null
+  targetUrl: string
+  keyPrefix: string | null
+  pending: number
+  failed: number
+  lastSentAt: string | null
 }
 
 export interface CreateOrderInput {

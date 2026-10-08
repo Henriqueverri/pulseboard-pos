@@ -65,22 +65,35 @@ public class PulseBoardClient {
         requestId);
   }
 
+  /** {@code GET /ingest/transactions/{external_id}}: the current state, for reconciliation. */
+  public DeliveryResult getTransaction(String externalId, String requestId) {
+    return exchange(
+        rest.get()
+            .uri("/ingest/transactions/{externalId}", externalId)
+            .header(REQUEST_ID, requestId));
+  }
+
   private DeliveryResult send(
       RestClient.RequestBodySpec request, String payload, String requestId) {
+    return exchange(
+        request
+            .header(REQUEST_ID, requestId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(payload));
+  }
+
+  private static DeliveryResult exchange(RestClient.RequestHeadersSpec<?> request) {
     try {
-      return request
-          .header(REQUEST_ID, requestId)
-          .contentType(MediaType.APPLICATION_JSON)
-          .body(payload)
-          .exchange(
-              (req, response) -> {
-                HttpHeaders headers = response.getHeaders();
-                return new DeliveryResult.Response(
-                    response.getStatusCode().value(),
-                    readBody(response.getBody()),
-                    headers.getFirst(REQUEST_ID),
-                    "true".equalsIgnoreCase(headers.getFirst(IDEMPOTENT_REPLAYED)));
-              });
+      return request.exchange(
+          (req, response) -> {
+            HttpHeaders headers = response.getHeaders();
+            return new DeliveryResult.Response(
+                response.getStatusCode().value(),
+                readBody(response.getBody()),
+                headers.getFirst(REQUEST_ID),
+                "true".equalsIgnoreCase(headers.getFirst(IDEMPOTENT_REPLAYED)),
+                headers.getFirst(HttpHeaders.RETRY_AFTER));
+          });
     } catch (ResourceAccessException e) {
       return isTimeout(e)
           ? new DeliveryResult.NoResponse("TIMEOUT", "O PulseBoard não respondeu dentro do prazo.")

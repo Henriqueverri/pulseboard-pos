@@ -1,3 +1,6 @@
+# Full POS: browser → web (Nginx, serves the SPA and proxies /api) → api (Spring Boot) → db.
+# The PulseBoard API is external: set PULSEBOARD_API_KEY (and optionally PULSEBOARD_API_URL) in .env.
+# Usage: cp .env.example .env && docker compose up --build
 services:
   db:
     image: postgres:16-alpine
@@ -15,6 +18,62 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      POS_DB_URL: jdbc:postgresql://db:5432/${POS_DB_NAME:-pulseboard_pos}
+      POS_DB_USER: ${POS_DB_USER:-pos}
+      POS_DB_PASSWORD: ${POS_DB_PASSWORD:-pos}
+      POS_CURRENCY: ${POS_CURRENCY:-BRL}
+      POS_JWT_SECRET: ${POS_JWT_SECRET:?set POS_JWT_SECRET in .env (at least 32 bytes)}
+      POS_ADMIN_EMAIL: ${POS_ADMIN_EMAIL:?set POS_ADMIN_EMAIL in .env}
+      POS_ADMIN_PASSWORD: ${POS_ADMIN_PASSWORD:?set POS_ADMIN_PASSWORD in .env}
+      POS_ADMIN_NAME: ${POS_ADMIN_NAME:-Administrador}
+      POS_CASHIER_EMAIL: ${POS_CASHIER_EMAIL:-}
+      POS_CASHIER_PASSWORD: ${POS_CASHIER_PASSWORD:-}
+      POS_CASHIER_NAME: ${POS_CASHIER_NAME:-Caixa}
+      PULSEBOARD_INTEGRATION_ENABLED: ${PULSEBOARD_INTEGRATION_ENABLED:-true}
+      # host.docker.internal is the host machine (a PulseBoard started with `php artisan serve
+      # --host=0.0.0.0 --port=8000`); use https://api.henriqueverri.dev/api/v1 for production.
+      PULSEBOARD_API_URL: ${PULSEBOARD_API_URL:-http://host.docker.internal:8000/api/v1}
+      PULSEBOARD_API_KEY: ${PULSEBOARD_API_KEY:-}
+      POS_OUTBOX_POLL_INTERVAL: ${POS_OUTBOX_POLL_INTERVAL:-2s}
+      POS_OUTBOX_MAX_ATTEMPTS: ${POS_OUTBOX_MAX_ATTEMPTS:-10}
+      POS_LOG_FORMAT: ${POS_LOG_FORMAT:-logstash}
+    extra_hosts:
+      # Makes host.docker.internal work on Linux too.
+      - "host.docker.internal:host-gateway"
+    ports:
+      # Optional: Swagger UI and curl. The browser goes through the web container.
+      - "${POS_API_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Anonymous /actuator/health: status only, includes the database connection.
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  web:
+    build: ./frontend
+    environment:
+      POS_API_UPSTREAM: http://api:8080
+    ports:
+      - "${POS_WEB_PORT:-8088}:80"
+    depends_on:
+      # Nginx only needs the "api" hostname to resolve at startup, not a ready API: until it is,
+      # /api answers 502 and the SPA itself is already served.
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pos-db-data:

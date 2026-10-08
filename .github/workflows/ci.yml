@@ -50,3 +50,18 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Lint Dockerfiles
+        run: |
+          docker run --rm -i hadolint/hadolint < backend/Dockerfile
+          docker run --rm -i hadolint/hadolint < frontend/Dockerfile
+
+      # Builds the images only (no push). .env.example satisfies the required variables.
+      - name: Build images
+        run: docker compose --env-file .env.example build

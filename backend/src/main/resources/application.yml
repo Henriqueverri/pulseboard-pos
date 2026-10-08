@@ -27,8 +27,22 @@ spring:
     locale: pt_BR
     locale-resolver: fixed
 
+pulseboard:
+  # Off when disabled or without a key: sales still create PENDING outbox events, delivered later.
+  enabled: ${PULSEBOARD_INTEGRATION_ENABLED:true}
+  api-url: ${PULSEBOARD_API_URL:http://localhost:8000/api/v1}
+  # API Key "pb_..." of the PulseBoard organization. Never commit a real value.
+  api-key: ${PULSEBOARD_API_KEY:}
+  connect-timeout: 10s
+  read-timeout: 30s
+
 pos:
   currency: ${POS_CURRENCY:BRL}
+  outbox:
+    poll-interval: ${POS_OUTBOX_POLL_INTERVAL:2s}
+    batch-size: 20
+    # Longer than connect + read timeouts, so a live worker never loses its claim.
+    lease: 2m
   security:
     jwt:
       # Required, at least 32 bytes; startup fails otherwise. Never commit a real value.

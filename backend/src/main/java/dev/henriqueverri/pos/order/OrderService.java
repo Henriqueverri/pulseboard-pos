@@ -4,6 +4,9 @@ import dev.henriqueverri.pos.catalog.Product;
 import dev.henriqueverri.pos.catalog.ProductRepository;
 import dev.henriqueverri.pos.customer.Customer;
 import dev.henriqueverri.pos.customer.CustomerRepository;
+import dev.henriqueverri.pos.integration.outbox.OutboxEventType;
+import dev.henriqueverri.pos.integration.outbox.OutboxService;
+import dev.henriqueverri.pos.integration.pulseboard.IngestPayloadFactory;
 import dev.henriqueverri.pos.order.dto.CreateOrderRequest;
 import dev.henriqueverri.pos.order.dto.OrderItemRequest;
 import dev.henriqueverri.pos.order.dto.OrderResponse;
@@ -36,6 +39,8 @@ public class OrderService {
   private final OrderRepository orders;
   private final CustomerRepository customers;
   private final ProductRepository products;
+  private final OutboxService outbox;
+  private final IngestPayloadFactory payloads;
   private final Clock clock;
   private final String currency;
 
@@ -43,11 +48,15 @@ public class OrderService {
       OrderRepository orders,
       CustomerRepository customers,
       ProductRepository products,
+      OutboxService outbox,
+      IngestPayloadFactory payloads,
       Clock clock,
       @Value("${pos.currency}") String currency) {
     this.orders = orders;
     this.customers = customers;
     this.products = products;
+    this.outbox = outbox;
+    this.payloads = payloads;
     this.clock = clock;
     this.currency = currency;
   }
@@ -126,10 +135,12 @@ public class OrderService {
     return OrderResponse.from(orders.save(order));
   }
 
+  /** The order change and its outbox event commit together or not at all. */
   @Transactional
   public OrderResponse pay(UUID id, PaymentMethod method) {
     Order order = find(id);
     order.pay(method, clock.instant());
+    outbox.enqueue(order.getId(), OutboxEventType.ORDER_PAID, payloads.orderPaid(order));
     return OrderResponse.from(order);
   }
 
@@ -144,6 +155,7 @@ public class OrderService {
   public OrderResponse refund(UUID id) {
     Order order = find(id);
     order.refund(clock.instant());
+    outbox.enqueue(order.getId(), OutboxEventType.ORDER_REFUNDED, payloads.orderRefunded(order));
     return OrderResponse.from(order);
   }
 

@@ -1,4 +1,7 @@
 pos:
+  outbox:
+    # Tests run the worker explicitly (OutboxWorker.runOnce) instead of on a schedule.
+    scheduler-enabled: false
   security:
     jwt:
       secret: test-only-secret-0123456789abcdef0123456789abcdef
@@ -11,3 +14,9 @@ pos:
         email: caixa@test.pos.example
         password: caixa-test-password
         name: Caixa de Teste
+
+pulseboard:
+  # Points to the WireMock server started by ApiIntegrationTest; a fake, test-only key.
+  api-key: pb_testprefix0_fake-test-only-key-not-a-secret-000000000
+  connect-timeout: 2s
+  read-timeout: 1s

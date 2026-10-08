@@ -2,7 +2,7 @@
 
 Ponto de venda (POS) que faz parte do ecossistema [PulseBoard](https://app.henriqueverri.dev). É um **sistema externo** ao PulseBoard: tem outro domínio, outro banco e outro ciclo de deploy, e só vai conhecer o PulseBoard pelo contrato público de ingestão (`POST /api/v1/ingest/*` com API Key). Nenhum código ou banco é compartilhado entre os dois repositórios.
 
-> **Status: F10 — Frontend React.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail, autenticação JWT com papéis ADMIN/CASHIER e testes com PostgreSQL real. O frontend React opera o caixa (venda completa), pedidos, clientes e produtos, respeitando os papéis. Ainda **não existem** outbox nem integração com o PulseBoard; eles chegam nas próximas fases.
+> **Status: F11 — Outbox e integração com o PulseBoard.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail, autenticação JWT com papéis ADMIN/CASHIER e testes com PostgreSQL real. O frontend React opera o caixa (venda completa), pedidos, clientes e produtos, respeitando os papéis. Pagamentos e estornos gravam um evento numa *transactional outbox* na mesma transação, e um worker os entrega à API de ingestão do PulseBoard. Classificação de erros, retry com backoff e a tela de integração chegam na próxima fase.
 
 ## Ecossistema (arquitetura alvo)
 
@@ -18,7 +18,7 @@ flowchart LR
 
 Fluxo planejado: a venda acontece no POS; o pedido pago grava um evento numa *transactional outbox* na mesma transação; um worker entrega a venda à API de ingestão do PulseBoard, que a transforma em analytics para o Web e o Mobile.
 
-**O que existe hoje (F10):** `POS Web` + `POS API` + `PostgreSQL POS`. A outbox e o lado PulseBoard do diagrama são arquitetura planejada.
+**O que existe hoje (F11):** `POS Web` + `POS API` + `PostgreSQL POS` + a outbox entregando ao `PulseBoard API`. Ver [Integração com o PulseBoard](#integração-com-o-pulseboard).
 
 ## Stack
 
@@ -48,10 +48,12 @@ pulseboard-pos/
 │       │   ├── catalog/     Product: entidade, repositório, serviço, controller, dto/
 │       │   ├── customer/    Customer: idem
 │       │   ├── order/       Order, OrderItem, OrderStatus, PaymentMethod: idem
-│       │   └── security/    SecurityConfig, TokenService, AuthController, User, Role, UserSeeder
+│       │   ├── security/    SecurityConfig, TokenService, AuthController, User, Role, UserSeeder
+│       │   └── integration/ outbox/ (OutboxEvent, OutboxService, OutboxStore, OutboxWorker) e
+│       │                    pulseboard/ (PulseBoardClient, IngestPayloadFactory, PulseBoardProperties)
 │       ├── main/resources/
 │       │   ├── application.yml
-│       │   └── db/migration/V1__baseline.sql … V5__users.sql
+│       │   └── db/migration/V1__baseline.sql … V6__outbox_events.sql
 │       └── test/java/dev/henriqueverri/pos/   espelha os pacotes + support/
 ├── frontend/                        POS Web (React + Vite)
 │   ├── src/
@@ -200,7 +202,7 @@ Regras principais:
 
 ### Catálogo de demonstração
 
-`V4__seed_catalog.sql` cria os 40 SKUs da organização de demo do PulseBoard (`PB-001-ESS` a `PB-020-PRO`), com nomes e preços copiados do `DemoDataSeeder` do PulseBoard. Os SKUs precisam existir nos dois sistemas para a futura integração aceitar a venda.
+`V4__seed_catalog.sql` cria os 40 SKUs da organização de demo do PulseBoard (`PB-001-ESS` a `PB-020-PRO`), com nomes e preços copiados do `DemoDataSeeder` do PulseBoard. Os SKUs precisam existir nos dois sistemas para a integração aceitar a venda.
 
 ### Erros
 
@@ -228,6 +230,34 @@ Todos os erros seguem ProblemDetail (RFC 9457), com `Content-Type: application/p
 | 422 | `unknown_customer`, `unknown_product`, `product_inactive`, `duplicate_order_item`, `order_total_too_large` |
 | 500 | `internal_error` (sem detalhes internos nem stack trace) |
 
+## Integração com o PulseBoard
+
+O POS usa só o contrato público de ingestão do PulseBoard (`docs/integration.md` daquele repositório), autenticado por uma API Key da organização. Nada no PulseBoard foi feito para o POS.
+
+**Transactional outbox.** `pay` e `refund` gravam, na **mesma transação** da mudança do pedido, uma linha em `outbox_events` com o corpo HTTP já pronto (*snapshot*). Se a gravação do evento falhar, o pagamento ou o estorno inteiro é desfeito: nunca existe pedido pago sem evento, nem evento de pedido não pago. Nenhuma chamada HTTP acontece dentro dessa transação.
+
+| Mudança no POS | Evento | Chamada ao PulseBoard |
+|---|---|---|
+| `PENDING → PAID` | `ORDER_PAID` | `POST /ingest/transactions` com `external_id = pos:<uuid do pedido>`, `status: paid`, cliente (`pos:cus:<uuid>`, nome, e-mail), itens por SKU e `total_amount` |
+| `PAID → REFUNDED` | `ORDER_REFUNDED` | `POST /ingest/transactions/pos:<uuid>/status-changes` com `status: refunded` |
+
+Pedidos cancelados não existem para o PulseBoard (nunca foram vendas) e não geram evento. Valores vão como string com duas casas, datas em UTC com segundos inteiros; o `document` do cliente não sai do POS.
+
+**Worker.** A cada `POS_OUTBOX_POLL_INTERVAL` (2 s) o worker reivindica um lote em sequência com `FOR UPDATE SKIP LOCKED`, marcando os eventos `PROCESSING` com um *lease* de 2 minutos, e confirma. Depois envia cada evento **fora de transação** e grava o resultado numa transação curta: `200`/`201` → `SENT` (com o `id` remoto); qualquer outra resposta, timeout ou falha de rede → `FAILED`, com status HTTP, `code` e mensagem do PulseBoard. Um evento cujo worker morreu volta a ser reivindicável quando o lease expira; o resultado só é gravado se o evento ainda pertencer àquela tentativa.
+
+**Idempotência.** Todo envio de um evento usa o mesmo corpo (lido da outbox) e o mesmo `X-Request-Id: pos-<id do evento>`. O PulseBoard deduplica por `external_id`: um reenvio depois de um resultado perdido recebe `200` com `Idempotent-Replayed: true` e é tratado como sucesso.
+
+**Headers:** `Authorization: Bearer <API Key>`, `Content-Type: application/json`, `Accept: application/json`, `X-Request-Id`. Timeouts: 10 s de conexão, 30 s de resposta.
+
+**Desligada ou sem chave.** Com `PULSEBOARD_INTEGRATION_ENABLED=false` ou sem `PULSEBOARD_API_KEY`, o POS sobe e vende normalmente; os eventos ficam `PENDING` e são entregues quando a integração for ligada. A chave nunca aparece em logs, respostas ou mensagens de erro.
+
+### Testar com o PulseBoard local
+
+1. Suba o PulseBoard (`apps/api`: `php artisan serve --port=8000`) com o banco de demonstração; a organização de demo já tem os 40 SKUs do POS.
+2. Crie uma API Key em **Integração → API Keys** no PulseBoard.
+3. Rode a API do POS com `PULSEBOARD_API_URL=http://localhost:8000/api/v1` e `PULSEBOARD_API_KEY=<a chave>` no ambiente (não no `.env.example`).
+4. Faça uma venda no caixa. Em segundos a transação `pos:<uuid>` aparece no PulseBoard como `paid`; estorne o pedido e ela passa a `refunded`.
+
 ## Configuração
 
 A API lê as variáveis do ambiente; os defaults de `application.yml` apontam para o PostgreSQL do Compose. O Docker Compose lê o `.env` da raiz automaticamente.
@@ -244,6 +274,10 @@ A API lê as variáveis do ambiente; os defaults de `application.yml` apontam pa
 | `POS_JWT_SECRET` | — (obrigatória, ≥ 32 bytes) | segredo HS256 dos tokens |
 | `POS_ADMIN_EMAIL` / `POS_ADMIN_PASSWORD` / `POS_ADMIN_NAME` | — / — / `Administrador` | usuário ADMIN criado no startup |
 | `POS_CASHIER_EMAIL` / `POS_CASHIER_PASSWORD` / `POS_CASHIER_NAME` | — / — / `Caixa` | usuário CASHIER criado no startup |
+| `PULSEBOARD_INTEGRATION_ENABLED` | `true` | liga/desliga o envio ao PulseBoard |
+| `PULSEBOARD_API_URL` | `http://localhost:8000/api/v1` | base da API de ingestão |
+| `PULSEBOARD_API_KEY` | — (vazia: nada é enviado) | API Key `pb_<prefixo>_<segredo>` da organização |
+| `POS_OUTBOX_POLL_INTERVAL` | `2s` | intervalo entre ciclos do worker |
 
 Nunca coloque credenciais reais no `.env.example` ou no repositório.
 
@@ -269,6 +303,10 @@ Os testes de integração usam **Testcontainers**: sobem um `postgres:16-alpine`
 | `AuthorizationMatrixTest` | matriz ADMIN/CASHIER (403) e 401 em todas as rotas da API |
 | `SecurityPropertiesTest`, `UserSeederTest` | startup falha com segredo fraco; seed idempotente com BCrypt |
 | `PosApplicationIntegrationTest` | PostgreSQL 16, migrations aplicadas, `/actuator/health` `UP` |
+| `IngestPayloadFactoryTest` | JSON exato de `ORDER_PAID` e `ORDER_REFUNDED` (dinheiro em string, UTC em segundos, sem `document`) |
+| `OutboxTransactionTest` | evento gravado na transação de `pay`/`refund`; falha real do banco ao gravar o evento desfaz o pagamento (pedido continua `PENDING`, nenhum evento órfão); cancelamento não gera evento |
+| `OutboxDeliveryTest` | worker contra um PulseBoard simulado (**WireMock**): 201 → `SENT`, headers e corpo exatos, reenvio após resultado perdido vira replay idempotente, worker atrasado não sobrescreve o resultado, estorno por `status-changes`, 422, timeout e falha de rede → `FAILED` |
+| `OutboxWorkerDisabledTest`, `PulseBoardPropertiesTest` | integração desligada ou sem chave não reivindica nem envia nada; a chave nunca aparece no `toString` |
 
 Para rodar só os testes: `./mvnw test`.
 
@@ -313,6 +351,7 @@ As migrations ficam em `backend/src/main/resources/db/migration`:
 | `V3__orders.sql` | `orders` (com `version`), `order_items`, sequência `order_number_seq` |
 | `V4__seed_catalog.sql` | catálogo de demonstração (40 SKUs) |
 | `V5__users.sql` | `users` (e-mail único, hash BCrypt, papel `ADMIN`/`CASHIER`) |
+| `V6__outbox_events.sql` | `outbox_events` (snapshot `jsonb`, `sequence`, status, tentativas, lease, último erro) |
 
 ## CI
 

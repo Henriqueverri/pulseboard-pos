@@ -1,5 +1,6 @@
 package dev.henriqueverri.pos.support;
 
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -7,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.WireMockServer;
 import dev.henriqueverri.pos.security.Role;
 import dev.henriqueverri.pos.security.TokenService;
 import dev.henriqueverri.pos.security.UserRepository;
@@ -18,6 +20,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -33,6 +37,23 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 public abstract class ApiIntegrationTest {
+
+  /**
+   * Stands in for the PulseBoard API. One server for the whole run, so every subclass shares the
+   * same Spring context; tests that use it reset it first.
+   */
+  protected static final WireMockServer PULSEBOARD = startPulseBoardMock();
+
+  private static WireMockServer startPulseBoardMock() {
+    WireMockServer server = new WireMockServer(options().dynamicPort());
+    server.start();
+    return server;
+  }
+
+  @DynamicPropertySource
+  static void pulseBoardUrl(DynamicPropertyRegistry registry) {
+    registry.add("pulseboard.api-url", () -> PULSEBOARD.baseUrl() + "/api/v1");
+  }
 
   public static final String ADMIN_EMAIL = "admin@test.pos.example";
   public static final String ADMIN_PASSWORD = "admin-test-password";

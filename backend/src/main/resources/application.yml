@@ -22,6 +22,13 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  web:
+    # Validation messages in Portuguese regardless of the client's Accept-Language.
+    locale: pt_BR
+    locale-resolver: fixed
+
+pos:
+  currency: ${POS_CURRENCY:BRL}
 
 management:
   endpoints:

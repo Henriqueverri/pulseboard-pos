@@ -36,12 +36,12 @@ class PosApplicationIntegrationTest {
   }
 
   @Test
-  void appliesFlywayBaselineMigration() {
+  void appliesFlywayMigrationsFromScratch() {
     MigrationInfo[] applied = flyway.info().applied();
 
-    assertThat(applied).hasSize(1);
+    assertThat(applied).isNotEmpty();
     assertThat(applied[0].getVersion().getVersion()).isEqualTo("1");
-    assertThat(applied[0].getState()).isEqualTo(MigrationState.SUCCESS);
+    assertThat(applied).allMatch(migration -> migration.getState() == MigrationState.SUCCESS);
     assertThat(flyway.info().pending()).isEmpty();
 
     Integer successfulRows =

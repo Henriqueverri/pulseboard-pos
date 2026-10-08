@@ -7,12 +7,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.henriqueverri.pos.security.Role;
+import dev.henriqueverri.pos.security.TokenService;
+import dev.henriqueverri.pos.security.UserRepository;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -25,12 +30,32 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 public abstract class ApiIntegrationTest {
+
+  public static final String ADMIN_EMAIL = "admin@test.pos.example";
+  public static final String ADMIN_PASSWORD = "admin-test-password";
+  public static final String CASHIER_EMAIL = "caixa@test.pos.example";
+  public static final String CASHIER_PASSWORD = "caixa-test-password";
 
   @Autowired protected MockMvc mvc;
 
   @Autowired protected ObjectMapper objectMapper;
+
+  @Autowired private TokenService tokenService;
+
+  @Autowired private UserRepository users;
+
+  /** A real token issued for a seeded user, exactly like the one returned by the login. */
+  protected String tokenFor(Role role) {
+    String email = role == Role.ADMIN ? ADMIN_EMAIL : CASHIER_EMAIL;
+    return tokenService.issue(users.findByEmail(email).orElseThrow()).value();
+  }
+
+  protected static String bearer(String token) {
+    return "Bearer " + token;
+  }
 
   protected ResultActions getJson(String path) throws Exception {
     return mvc.perform(authenticate(get(path)));
@@ -46,8 +71,9 @@ public abstract class ApiIntegrationTest {
         authenticate(put(path).contentType(MediaType.APPLICATION_JSON).content(body)));
   }
 
+  /** Domain tests run as ADMIN, who may call every endpoint; the role matrix has its own test. */
   protected MockHttpServletRequestBuilder authenticate(MockHttpServletRequestBuilder request) {
-    return request;
+    return request.header(HttpHeaders.AUTHORIZATION, bearer(tokenFor(Role.ADMIN)));
   }
 
   protected JsonNode json(ResultActions result) throws Exception {

@@ -5,7 +5,7 @@ spring:
   application:
     name: pulseboard-pos
   autoconfigure:
-    # No users exist until F9; avoids the generated in-memory user and its logged password.
+    # Users live in the database and authenticate with JWT; no generated in-memory user.
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${POS_DB_URL:jdbc:postgresql://localhost:5433/pulseboard_pos}
@@ -29,6 +29,20 @@ spring:
 
 pos:
   currency: ${POS_CURRENCY:BRL}
+  security:
+    jwt:
+      # Required, at least 32 bytes; startup fails otherwise. Never commit a real value.
+      secret: ${POS_JWT_SECRET:}
+      ttl: 8h
+    users:
+      admin:
+        email: ${POS_ADMIN_EMAIL:}
+        password: ${POS_ADMIN_PASSWORD:}
+        name: ${POS_ADMIN_NAME:Administrador}
+      cashier:
+        email: ${POS_CASHIER_EMAIL:}
+        password: ${POS_CASHIER_PASSWORD:}
+        name: ${POS_CASHIER_NAME:Caixa}
 
 management:
   endpoints:

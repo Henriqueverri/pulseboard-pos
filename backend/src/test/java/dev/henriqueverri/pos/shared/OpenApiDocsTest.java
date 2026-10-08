@@ -30,6 +30,15 @@ class OpenApiDocsTest extends ApiIntegrationTest {
         .isEqualTo("string");
     assertThat(schemas.has("Order")).isFalse();
     assertThat(schemas.has("Product")).isFalse();
+    assertThat(schemas.has("User")).isFalse();
+
+    JsonNode bearer = docs.get("components").get("securitySchemes").get("bearerAuth");
+    assertThat(bearer.get("scheme").asText()).isEqualTo("bearer");
+    assertThat(bearer.get("bearerFormat").asText()).isEqualTo("JWT");
+    assertThat(docs.get("security").get(0).has("bearerAuth")).isTrue();
+    JsonNode login = paths.get("/api/auth/login").get("post");
+    assertThat(login.get("security")).isEmpty();
+    assertThat(paths.has("/api/auth/me")).isTrue();
 
     mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
   }

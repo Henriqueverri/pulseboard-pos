@@ -2,7 +2,7 @@
 
 Ponto de venda (POS) que faz parte do ecossistema [PulseBoard](https://app.henriqueverri.dev). É um **sistema externo** ao PulseBoard: tem outro domínio, outro banco e outro ciclo de deploy, e só vai conhecer o PulseBoard pelo contrato público de ingestão (`POST /api/v1/ingest/*` com API Key). Nenhum código ou banco é compartilhado entre os dois repositórios.
 
-> **Status: F8 — Domínio + API REST.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail e testes com PostgreSQL real. Ainda **não existem** autenticação, frontend, outbox nem integração com o PulseBoard; eles chegam nas próximas fases.
+> **Status: F9 — Autenticação.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail, autenticação JWT com papéis ADMIN/CASHIER e testes com PostgreSQL real. Ainda **não existem** frontend, outbox nem integração com o PulseBoard; eles chegam nas próximas fases.
 
 ## Ecossistema (arquitetura alvo)
 
@@ -18,11 +18,11 @@ flowchart LR
 
 Fluxo planejado: a venda acontece no POS; o pedido pago grava um evento numa *transactional outbox* na mesma transação; um worker entrega a venda à API de ingestão do PulseBoard, que a transforma em analytics para o Web e o Mobile.
 
-**O que existe hoje (F8):** apenas `POS API` + `PostgreSQL POS`. O restante do diagrama é arquitetura planejada.
+**O que existe hoje (F9):** apenas `POS API` + `PostgreSQL POS`. O restante do diagrama é arquitetura planejada.
 
 ## Stack
 
-- Java 21, Spring Boot 3.5 (Web, Validation, Data JPA, Actuator, Security)
+- Java 21, Spring Boot 3.5 (Web, Validation, Data JPA, Actuator, Security, OAuth2 Resource Server)
 - PostgreSQL 16 e Flyway
 - springdoc-openapi (Swagger UI)
 - Maven (wrapper incluído)
@@ -31,7 +31,7 @@ Fluxo planejado: a venda acontece no POS; o pedido pago grava um evento numa *tr
 - Docker Compose (apenas o PostgreSQL)
 - GitHub Actions
 
-O Spring Security está presente, mas **provisoriamente aberto** (`permitAll` explícito em `SecurityConfig`): não há usuários, papéis nem tokens. A autenticação JWT é uma fase posterior.
+A API é um *resource server* JWT stateless (Spring Security + Nimbus, HS256), sem biblioteca JWT de terceiros. Detalhes na seção [Autenticação](#autenticação).
 
 ## Estrutura
 
@@ -46,10 +46,10 @@ pulseboard-pos/
 │       │   ├── catalog/     Product: entidade, repositório, serviço, controller, dto/
 │       │   ├── customer/    Customer: idem
 │       │   ├── order/       Order, OrderItem, OrderStatus, PaymentMethod: idem
-│       │   └── security/    SecurityConfig
+│       │   └── security/    SecurityConfig, TokenService, AuthController, User, Role, UserSeeder
 │       ├── main/resources/
 │       │   ├── application.yml
-│       │   └── db/migration/V1__baseline.sql … V4__seed_catalog.sql
+│       │   └── db/migration/V1__baseline.sql … V5__users.sql
 │       └── test/java/dev/henriqueverri/pos/   espelha os pacotes + support/
 ├── docker-compose.yml               PostgreSQL do POS (porta 5433)
 ├── .env.example
@@ -77,11 +77,13 @@ O PostgreSQL do POS escuta em **`localhost:5433`** (e não em 5432) para não co
 ### 2. API
 
 ```bash
+cp .env.example .env              # se ainda não fez no passo 1
+set -a; source .env; set +a       # a API lê as variáveis do ambiente (POS_JWT_SECRET é obrigatória)
 cd backend
 ./mvnw spring-boot:run
 ```
 
-A API sobe em `http://localhost:8080` e o Flyway aplica as migrations na inicialização.
+A API sobe em `http://localhost:8080` e o Flyway aplica as migrations na inicialização. Sem `POS_JWT_SECRET` com pelo menos 32 bytes a aplicação **não sobe** (falha explícita no startup).
 
 ### 3. Health check
 
@@ -97,7 +99,28 @@ curl http://localhost:8080/actuator/health
 - Swagger UI: `http://localhost:8080/swagger-ui/index.html`
 - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
-Roteiro pelo Swagger: criar cliente (`POST /api/customers`) → buscar produtos (`GET /api/products?q=PB-001`) → criar pedido (`POST /api/orders`) → pagar (`POST /api/orders/{id}/pay`) → estornar (`POST /api/orders/{id}/refund`). Um segundo pedido pode ser cancelado enquanto `PENDING`; qualquer transição fora da máquina de estados devolve `409`.
+Primeiro faça login em `POST /api/auth/login` (ex.: `caixa@pos.example` / `caixa-dev-password` do `.env.example`), copie o `access_token`, clique em **Authorize** e cole o token (o Swagger adiciona `Bearer`). Roteiro: criar cliente (`POST /api/customers`) → buscar produtos (`GET /api/products?q=PB-001`) → criar pedido (`POST /api/orders`) → pagar (`POST /api/orders/{id}/pay`) → estornar (`POST /api/orders/{id}/refund`). Um segundo pedido pode ser cancelado enquanto `PENDING`; qualquer transição fora da máquina de estados devolve `409`.
+
+## Autenticação
+
+- `POST /api/auth/login` com `{ "email", "password" }` devolve `{ access_token, token_type: "Bearer", expires_in: 28800, user: { id, name, email, role } }`. Credencial errada (e-mail inexistente ou senha incorreta) devolve o mesmo `401 invalid_credentials`.
+- `GET /api/auth/me` devolve o usuário do token.
+- Token **HS256** de **8 h** (um turno), assinado com `POS_JWT_SECRET` (≥ 32 bytes, validado no startup). Claims: `sub` (id), `email`, `role`, `iat`, `exp`. Sem refresh token: expirou, novo login.
+- API **stateless**: sem sessão HTTP e sem cookies; o cliente envia `Authorization: Bearer <token>`.
+- Sem cadastro: os usuários `ADMIN` e `CASHIER` são criados (ou sincronizados, se a senha/nome mudar) no startup a partir de `POS_ADMIN_*` e `POS_CASHIER_*`, com senha em BCrypt. Uma variável sem e-mail ou senha apenas pula aquele usuário (com aviso no log).
+
+Matriz de permissões (definida num único lugar, o `SecurityFilterChain`):
+
+| Rota | Público | CASHIER | ADMIN |
+|---|---|---|---|
+| `POST /api/auth/login`, `/actuator/health`, `/swagger-ui`, `/v3/api-docs` | sim | sim | sim |
+| `GET /api/auth/me`, `GET /api/products/**` | — | sim | sim |
+| `/api/customers/**` (listar, criar, editar) | — | sim | sim |
+| `POST /api/orders`, `GET /api/orders/**`, `pay`, `cancel` | — | sim | sim |
+| `POST /api/products`, `PUT /api/products/{id}` | — | **não** | sim |
+| `POST /api/orders/{id}/refund` | — | **não** | sim |
+
+Sem token, token malformado, expirado ou com assinatura inválida → `401 unauthorized` (com `WWW-Authenticate: Bearer`); papel insuficiente → `403 forbidden`. Ambos em ProblemDetail, no mesmo formato dos demais erros.
 
 ## Domínio e API
 
@@ -141,6 +164,8 @@ Todos os erros seguem ProblemDetail (RFC 9457), com `Content-Type: application/p
 | Status | `code` |
 |---|---|
 | 400 | `validation_failed`, `malformed_request` |
+| 401 | `unauthorized`, `invalid_credentials` |
+| 403 | `forbidden` |
 | 404 | `not_found` |
 | 409 | `invalid_order_transition`, `concurrent_modification`, `duplicate_sku`, `duplicate_email` |
 | 422 | `unknown_customer`, `unknown_product`, `product_inactive`, `duplicate_order_item`, `order_total_too_large` |
@@ -159,6 +184,9 @@ A API lê as variáveis do ambiente; os defaults de `application.yml` apontam pa
 | `POS_DB_PORT` | `5433` | porta do PostgreSQL no host |
 | `SERVER_PORT` | `8080` | porta HTTP da API |
 | `POS_CURRENCY` | `BRL` | moeda dos pedidos |
+| `POS_JWT_SECRET` | — (obrigatória, ≥ 32 bytes) | segredo HS256 dos tokens |
+| `POS_ADMIN_EMAIL` / `POS_ADMIN_PASSWORD` / `POS_ADMIN_NAME` | — / — / `Administrador` | usuário ADMIN criado no startup |
+| `POS_CASHIER_EMAIL` / `POS_CASHIER_PASSWORD` / `POS_CASHIER_NAME` | — / — / `Caixa` | usuário CASHIER criado no startup |
 
 Nunca coloque credenciais reais no `.env.example` ou no repositório.
 
@@ -179,7 +207,10 @@ Os testes de integração usam **Testcontainers**: sobem um `postgres:16-alpine`
 | `ProductApiTest`, `CustomerApiTest` | CRUD, unicidade de SKU/e-mail (409), validação, busca e paginação |
 | `OrderOptimisticLockingTest` | duas transações concorrentes no mesmo pedido: a segunda falha por `@Version` |
 | `RepositoryIntegrationTest` | seed dos 40 SKUs, constraints e índices únicos, sequência do número do pedido |
-| `OpenApiDocsTest` | OpenAPI com as rotas reais e dinheiro como `string` |
+| `OpenApiDocsTest` | OpenAPI com as rotas reais, dinheiro como `string` e esquema Bearer |
+| `AuthApiTest` | login (válido, inválido, indistinguível), claims e validade do token, `/auth/me`, 401 sem token / malformado / expirado / assinatura inválida, rotas públicas |
+| `AuthorizationMatrixTest` | matriz ADMIN/CASHIER (403) e 401 em todas as rotas da API |
+| `SecurityPropertiesTest`, `UserSeederTest` | startup falha com segredo fraco; seed idempotente com BCrypt |
 | `PosApplicationIntegrationTest` | PostgreSQL 16, migrations aplicadas, `/actuator/health` `UP` |
 
 Para rodar só os testes: `./mvnw test`.
@@ -202,6 +233,7 @@ As migrations ficam em `backend/src/main/resources/db/migration`:
 | `V2__catalog_customers.sql` | `products`, `customers` |
 | `V3__orders.sql` | `orders` (com `version`), `order_items`, sequência `order_number_seq` |
 | `V4__seed_catalog.sql` | catálogo de demonstração (40 SKUs) |
+| `V5__users.sql` | `users` (e-mail único, hash BCrypt, papel `ADMIN`/`CASHIER`) |
 
 ## CI
 

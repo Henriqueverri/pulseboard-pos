@@ -15,10 +15,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "management.endpoint.health.show-components=always")
+@ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 class PosApplicationIntegrationTest {
 

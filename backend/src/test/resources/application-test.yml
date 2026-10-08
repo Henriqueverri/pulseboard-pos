@@ -1,0 +1,13 @@
+pos:
+  security:
+    jwt:
+      secret: test-only-secret-0123456789abcdef0123456789abcdef
+    users:
+      admin:
+        email: admin@test.pos.example
+        password: admin-test-password
+        name: Admin de Teste
+      cashier:
+        email: caixa@test.pos.example
+        password: caixa-test-password
+        name: Caixa de Teste

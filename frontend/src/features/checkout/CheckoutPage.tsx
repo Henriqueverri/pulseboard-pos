@@ -1,11 +1,15 @@
+import { CheckIcon, WarningIcon } from '@phosphor-icons/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useReducer, useState } from 'react'
 import { Link } from 'react-router'
 import { ApiError } from '../../api/client'
 import { ordersApi } from '../../api/endpoints'
 import type { Order, PaymentMethod } from '../../api/types'
+import { PageHeader } from '../../components/layout/PageHeader'
 import { Alert, ErrorAlert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { buttonClasses } from '../../components/ui/styles'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { formatCents, formatMoney } from '../../lib/money'
 import { Cart } from './Cart'
@@ -89,92 +93,70 @@ export function CheckoutPage() {
   if (result) {
     const { order, payError } = result
     return (
-      <section className="mx-auto max-w-lg space-y-4 rounded-lg border border-slate-200 bg-white p-6 text-center">
-        {payError ? (
-          <>
-            <h1 className="text-xl font-semibold">Pedido #{order.number} criado, pagamento não concluído</h1>
-            <ErrorAlert error={payError} />
-            <p className="text-sm text-slate-600">
-              O pedido está pendente. Tente o pagamento novamente pelo detalhe do pedido.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="text-xl font-semibold text-emerald-700">Venda concluída</h1>
-            <p className="text-sm text-slate-600">
-              Pedido <strong>#{order.number}</strong> · {order.customer.name}
-            </p>
-            <p className="text-3xl font-semibold tabular-nums">
-              {formatMoney(order.total, order.currency)}
-            </p>
-            {order.paymentMethod && (
-              <p className="text-sm text-slate-600">
-                Pago com {PAYMENT_METHOD_LABELS[order.paymentMethod]}
+      <Card className="mx-auto mt-4 max-w-md" padding="none">
+        <div className="flex flex-col items-center gap-4 px-6 py-10 text-center">
+          {payError ? (
+            <>
+              <span className="flex size-14 items-center justify-center rounded-full bg-warning-soft text-warning-strong">
+                <WarningIcon size={28} weight="fill" aria-hidden="true" />
+              </span>
+              <h1 className="text-xl font-semibold tracking-tight">
+                Pedido #{order.number} criado, pagamento não concluído
+              </h1>
+              <div className="w-full text-left">
+                <ErrorAlert error={payError} />
+              </div>
+              <p className="text-sm text-ink/65">
+                O pedido está pendente. Tente o pagamento novamente pelo detalhe do pedido.
               </p>
-            )}
-          </>
-        )}
-        <div className="flex justify-center gap-2">
-          <Link
-            to={`/orders/${order.id}`}
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100"
-          >
+            </>
+          ) : (
+            <>
+              <span className="flex size-14 items-center justify-center rounded-full bg-success-soft text-success-strong">
+                <CheckIcon size={28} weight="bold" aria-hidden="true" />
+              </span>
+              <div>
+                <h1 className="text-xl font-semibold tracking-tight">Venda concluída</h1>
+                <p className="mt-1 text-sm text-ink/65">
+                  Pedido <strong className="font-semibold text-ink">#{order.number}</strong> ·{' '}
+                  {order.customer.name}
+                </p>
+              </div>
+              <p className="text-4xl font-semibold tracking-tight tabular">
+                {formatMoney(order.total, order.currency)}
+              </p>
+              {order.paymentMethod && (
+                <p className="text-sm text-ink/65">Pago com {PAYMENT_METHOD_LABELS[order.paymentMethod]}</p>
+              )}
+              <p className="text-xs text-ink/55">O envio ao PulseBoard acontece em segundos.</p>
+            </>
+          )}
+        </div>
+        <div className="flex justify-center gap-2 border-t border-ink/[0.07] px-6 py-4">
+          <Link to={`/orders/${order.id}`} className={buttonClasses({ variant: 'outline' })}>
             Ver pedido
           </Link>
           <Button onClick={() => setResult(null)}>Nova venda</Button>
         </div>
-      </section>
+      </Card>
     )
   }
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_24rem]">
-      <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Caixa</h1>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="min-w-0">
+        <PageHeader title="Caixa" description="Busque os produtos, escolha o cliente e registre o pagamento." />
         <ProductSearch onAdd={(product) => dispatch({ type: 'add', product })} />
       </div>
 
-      <aside className="space-y-4">
-        <h2 className="text-lg font-semibold">Cliente</h2>
-        <CustomerPicker
-          customer={cart.customer}
-          onChange={(customer) => dispatch({ type: 'setCustomer', customer })}
-        />
-
-        <h2 className="text-lg font-semibold">Carrinho</h2>
-        <Cart items={cart.items} dispatch={dispatch} />
-
-        <dl className="space-y-1 rounded-md border border-slate-200 bg-white p-3 text-sm">
-          <div className="flex justify-between">
-            <dt>Itens</dt>
-            <dd className="tabular-nums">{totals.itemCount}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt>Subtotal</dt>
-            <dd className="tabular-nums">{formatCents(totals.subtotalCents)}</dd>
-          </div>
-          <div className="flex justify-between border-t border-slate-100 pt-2 text-base font-semibold">
-            <dt>Total</dt>
-            <dd className="tabular-nums" data-testid="cart-total">
-              {formatCents(totals.totalCents)}
-            </dd>
-          </div>
-        </dl>
-
-        {issues.length > 0 && !paying && (
-          <Alert>
-            {issues.map((issue) => (
-              <p key={issue}>{issue}</p>
-            ))}
-          </Alert>
-        )}
-
-        <div className="flex gap-2">
-          <Button className="flex-1" onClick={startPayment}>
-            Finalizar venda
-          </Button>
+      <Card
+        title="Venda atual"
+        aria-label="Venda atual"
+        className="xl:sticky xl:top-8"
+        actions={
           <Button
-            variant="secondary"
+            variant="ghost"
+            size="sm"
             disabled={cart.items.length === 0 && !cart.customer}
             onClick={() => {
               dispatch({ type: 'clear' })
@@ -183,8 +165,52 @@ export function CheckoutPage() {
           >
             Limpar
           </Button>
+        }
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium text-ink/65">Cliente</h3>
+            <CustomerPicker
+              customer={cart.customer}
+              onChange={(customer) => dispatch({ type: 'setCustomer', customer })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium text-ink/65">Carrinho</h3>
+            <Cart items={cart.items} dispatch={dispatch} />
+          </div>
+
+          <dl className="space-y-1.5 border-t border-ink/[0.07] pt-4 text-sm">
+            <div className="flex justify-between text-ink/65">
+              <dt>Itens</dt>
+              <dd className="tabular">{totals.itemCount}</dd>
+            </div>
+            <div className="flex justify-between text-ink/65">
+              <dt>Subtotal</dt>
+              <dd className="tabular">{formatCents(totals.subtotalCents)}</dd>
+            </div>
+            <div className="flex items-baseline justify-between pt-1">
+              <dt className="font-medium">Total</dt>
+              <dd className="text-2xl font-semibold tracking-tight tabular" data-testid="cart-total">
+                {formatCents(totals.totalCents)}
+              </dd>
+            </div>
+          </dl>
+
+          {issues.length > 0 && !paying && (
+            <Alert>
+              {issues.map((issue) => (
+                <p key={issue}>{issue}</p>
+              ))}
+            </Alert>
+          )}
+
+          <Button size="lg" block onClick={startPayment}>
+            Finalizar venda
+          </Button>
         </div>
-      </aside>
+      </Card>
 
       <PaymentDialog
         open={paying}
@@ -197,6 +223,6 @@ export function CheckoutPage() {
         onConfirm={confirmPayment}
         onClose={() => setPaying(false)}
       />
-    </section>
+    </div>
   )
 }

@@ -66,7 +66,7 @@ Com o PulseBoard parado, uma nova venda fica **Pendente** com o erro `NETWORK` e
 
 ![Retry agendado com o PulseBoard fora](demo/08-retry-scheduled.png)
 
-Ao religar o PulseBoard, o worker entrega sozinho na tentativa seguinte (aqui, a 3ª), sem ação manual.
+Ao religar o PulseBoard, o worker entrega sozinho na tentativa seguinte (aqui, a 6ª, cerca de 2 min depois de religado), sem ação manual.
 
 ![Entregue depois do retry](demo/09-delivered-after-retry.png)
 

@@ -1,11 +1,17 @@
+import { PencilSimpleIcon, PlusIcon, UsersIcon } from '@phosphor-icons/react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { customersApi } from '../../api/endpoints'
 import type { Customer } from '../../api/types'
+import { PageHeader } from '../../components/layout/PageHeader'
 import { ErrorAlert } from '../../components/ui/Alert'
+import { Avatar } from '../../components/ui/Avatar'
 import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
 import { Dialog } from '../../components/ui/Dialog'
-import { Pagination, Table, Td, Th } from '../../components/ui/Table'
+import { SearchInput } from '../../components/ui/Field'
+import { EmptyState, SkeletonRows } from '../../components/ui/States'
+import { Pagination, Table, TBody, Td, Th, THead, Tr } from '../../components/ui/Table'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { CustomerForm } from './CustomerForm'
 
@@ -24,69 +30,88 @@ export function CustomersPage() {
   })
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Clientes</h1>
-        <Button onClick={() => setEditing({ mode: 'create' })}>Novo cliente</Button>
-      </div>
-
-      <input
-        type="search"
-        aria-label="Buscar clientes"
-        placeholder="Buscar por nome ou e-mail"
-        className="w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm"
-        value={search}
-        onChange={(event) => {
-          setSearch(event.target.value)
-          setPage(0)
-        }}
+    <>
+      <PageHeader
+        title="Clientes"
+        description="Quem compra na loja. Nome e e-mail seguem para o PulseBoard junto com cada venda."
+        actions={
+          <Button
+            leading={<PlusIcon size={16} weight="bold" aria-hidden="true" />}
+            onClick={() => setEditing({ mode: 'create' })}
+          >
+            Novo cliente
+          </Button>
+        }
       />
 
-      <ErrorAlert error={customers.error} />
+      <Card padding="none">
+        <div className="border-b border-ink/[0.07] p-4">
+          <SearchInput
+            className="max-w-md"
+            aria-label="Buscar clientes"
+            placeholder="Buscar por nome ou e-mail"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setPage(0)
+            }}
+          />
+        </div>
 
-      {customers.data && (
-        <>
-          <Table>
-            <thead className="bg-slate-50">
-              <tr>
+        {customers.error && (
+          <div className="p-4">
+            <ErrorAlert error={customers.error} />
+          </div>
+        )}
+        {customers.isPending && <SkeletonRows />}
+        {customers.data?.content.length === 0 && (
+          <EmptyState icon={UsersIcon} title="Nenhum cliente encontrado." />
+        )}
+        {customers.data && customers.data.content.length > 0 && (
+          <>
+            <Table caption="Clientes">
+              <THead>
                 <Th>Nome</Th>
                 <Th>E-mail</Th>
                 <Th>Documento</Th>
                 <Th>
                   <span className="sr-only">Ações</span>
                 </Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {customers.data.content.map((customer) => (
-                <tr key={customer.id}>
-                  <Td className="font-medium">{customer.name}</Td>
-                  <Td>{customer.email}</Td>
-                  <Td>{customer.document ?? '—'}</Td>
-                  <Td className="text-right">
-                    <Button variant="ghost" onClick={() => setEditing({ mode: 'edit', customer })}>
-                      Editar
-                    </Button>
-                  </Td>
-                </tr>
-              ))}
-              {customers.data.content.length === 0 && (
-                <tr>
-                  <Td colSpan={4} className="py-6 text-center text-slate-500">
-                    Nenhum cliente encontrado.
-                  </Td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-          <Pagination
-            page={customers.data.page}
-            totalPages={customers.data.totalPages}
-            onChange={setPage}
-          />
-        </>
-      )}
-      {customers.isPending && <p className="text-sm text-slate-500">Carregando…</p>}
+              </THead>
+              <TBody>
+                {customers.data.content.map((customer) => (
+                  <Tr key={customer.id}>
+                    <Td>
+                      <span className="flex items-center gap-3 font-medium">
+                        <Avatar name={customer.name} />
+                        {customer.name}
+                      </span>
+                    </Td>
+                    <Td className="text-ink/65">{customer.email}</Td>
+                    <Td className="text-ink/65 tabular">{customer.document ?? '—'}</Td>
+                    <Td className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        leading={<PencilSimpleIcon size={14} aria-hidden="true" />}
+                        onClick={() => setEditing({ mode: 'edit', customer })}
+                      >
+                        Editar
+                      </Button>
+                    </Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+            <Pagination
+              page={customers.data.page}
+              totalPages={customers.data.totalPages}
+              totalElements={customers.data.totalElements}
+              onChange={setPage}
+            />
+          </>
+        )}
+      </Card>
 
       <Dialog
         open={editing !== null}
@@ -101,6 +126,6 @@ export function CustomersPage() {
           />
         )}
       </Dialog>
-    </section>
+    </>
   )
 }

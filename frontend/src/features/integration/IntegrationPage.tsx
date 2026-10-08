@@ -1,10 +1,15 @@
+import { ArrowClockwiseIcon, PlugsConnectedIcon } from '@phosphor-icons/react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { integrationApi, type IntegrationEventFilters } from '../../api/endpoints'
 import type { IntegrationEventStatus } from '../../api/types'
+import { PageHeader } from '../../components/layout/PageHeader'
 import { Alert, ErrorAlert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
+import { Card } from '../../components/ui/Card'
+import { FilterField, Select } from '../../components/ui/Field'
+import { EmptyState, Skeleton, SkeletonRows } from '../../components/ui/States'
 import { Pagination } from '../../components/ui/Table'
 import { formatDateTime } from '../../lib/dates'
 import { INTEGRATION_STATUS_LABELS } from '../../lib/labels'
@@ -67,71 +72,90 @@ export function IntegrationPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <h1 className="text-2xl font-semibold">Integração com o PulseBoard</h1>
+    <>
+      <PageHeader
+        title="Integração com o PulseBoard"
+        description="Cada pagamento e estorno vira um evento entregue ao PulseBoard: o que foi enviado, o que está aguardando e por quê, e o que falhou."
+      />
 
-      {health.data?.pausedUntil && (
-        <Alert>
-          <strong>Integração pausada: API Key inválida, revogada ou expirada.</strong> Nenhum evento é
-          enviado até {formatDateTime(health.data.pausedUntil)}. Corrija a chave
-          (PULSEBOARD_API_KEY), reinicie a API e use “Reprocessar falhas de configuração”.
-        </Alert>
-      )}
-      <ErrorAlert error={health.error} />
-      {health.data && <HealthCard health={health.data} />}
+      <div className="space-y-6">
+        {health.data?.pausedUntil && (
+          <Alert title="Integração pausada: API Key inválida, revogada ou expirada.">
+            Nenhum evento é enviado até {formatDateTime(health.data.pausedUntil)}. Corrija a chave
+            (PULSEBOARD_API_KEY), reinicie a API e use “Reprocessar falhas de configuração”.
+          </Alert>
+        )}
+        <ErrorAlert error={health.error} />
+        {health.isPending && <Skeleton className="h-20 w-full rounded-xl" />}
+        {health.data && <HealthCard health={health.data} />}
 
-      <div className="flex flex-wrap items-end justify-between gap-3 text-sm">
-        <label className="space-y-1">
-          <span className="block font-medium text-slate-700">Status</span>
-          <select
-            className="rounded-md border border-slate-300 px-3 py-2"
-            value={filters.status ?? ''}
-            onChange={(event) => update({ status: event.target.value })}
-          >
-            <option value="">Todos</option>
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {INTEGRATION_STATUS_LABELS[status]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button
-          variant="secondary"
-          disabled={retryConfiguration.isPending}
-          onClick={() => retryConfiguration.mutate()}
-        >
-          Reprocessar falhas de configuração
-        </Button>
+        <Card padding="none">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-ink/[0.07] p-4">
+            <FilterField label="Status">
+              <Select
+                className="w-44"
+                value={filters.status ?? ''}
+                onChange={(event) => update({ status: event.target.value })}
+              >
+                <option value="">Todos</option>
+                {STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {INTEGRATION_STATUS_LABELS[status]}
+                  </option>
+                ))}
+              </Select>
+            </FilterField>
+            <Button
+              variant="outline"
+              loading={retryConfiguration.isPending}
+              leading={<ArrowClockwiseIcon size={16} aria-hidden="true" />}
+              onClick={() => retryConfiguration.mutate()}
+            >
+              Reprocessar falhas de configuração
+            </Button>
+          </div>
+
+          {(retryConfiguration.data || events.error || retry.error || retryConfiguration.error) && (
+            <div className="space-y-3 border-b border-ink/[0.07] p-4">
+              {retryConfiguration.data && (
+                <Alert tone="success">
+                  {retryConfiguration.data.retried === 1
+                    ? '1 evento voltou para a fila.'
+                    : `${retryConfiguration.data.retried} eventos voltaram para a fila.`}
+                </Alert>
+              )}
+              <ErrorAlert error={events.error ?? retry.error ?? retryConfiguration.error} />
+            </div>
+          )}
+
+          {events.isPending && <SkeletonRows />}
+          {events.data?.content.length === 0 && (
+            <EmptyState
+              icon={PlugsConnectedIcon}
+              title="Nenhum evento encontrado."
+              description="Os eventos aparecem aqui quando um pedido é pago ou estornado."
+            />
+          )}
+          {events.data && events.data.content.length > 0 && (
+            <>
+              <EventsTable
+                events={events.data.content}
+                retrying={retry.isPending ? (retry.variables ?? null) : null}
+                onSelect={setSelected}
+                onRetry={(id) => retry.mutate(id)}
+              />
+              <Pagination
+                page={events.data.page}
+                totalPages={events.data.totalPages}
+                totalElements={events.data.totalElements}
+                onChange={(page) => update({ page: page > 0 ? String(page) : '' })}
+              />
+            </>
+          )}
+        </Card>
       </div>
 
-      {retryConfiguration.data && (
-        <Alert tone="success">
-          {retryConfiguration.data.retried === 1
-            ? '1 evento voltou para a fila.'
-            : `${retryConfiguration.data.retried} eventos voltaram para a fila.`}
-        </Alert>
-      )}
-      <ErrorAlert error={events.error ?? retry.error ?? retryConfiguration.error} />
-
-      {events.data && (
-        <>
-          <EventsTable
-            events={events.data.content}
-            retrying={retry.isPending ? (retry.variables ?? null) : null}
-            onSelect={setSelected}
-            onRetry={(id) => retry.mutate(id)}
-          />
-          <Pagination
-            page={events.data.page}
-            totalPages={events.data.totalPages}
-            onChange={(page) => update({ page: page > 0 ? String(page) : '' })}
-          />
-        </>
-      )}
-      {events.isPending && <p className="text-sm text-slate-500">Carregando…</p>}
-
       <EventDetailDrawer eventId={selected} onClose={() => setSelected(null)} />
-    </section>
+    </>
   )
 }

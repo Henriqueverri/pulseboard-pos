@@ -70,16 +70,23 @@ export function ProductForm({
         error={errors.price?.message}
         {...register('price')}
       />
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" className="h-4 w-4" {...register('active')} />
-        Ativo (pode ser vendido)
+      <label className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-ink/10 px-3 py-2.5">
+        <span>
+          <span className="block text-sm font-medium">Ativo</span>
+          <span className="block text-xs text-ink/65">Só produtos ativos aparecem no caixa.</span>
+        </span>
+        <input type="checkbox" role="switch" className="peer sr-only" {...register('active')} />
+        <span
+          className="relative h-5 w-9 shrink-0 rounded-full bg-ink/15 transition-colors peer-checked:bg-brand-600 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/60 after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow-soft after:transition-transform peer-checked:after:translate-x-4"
+          aria-hidden="true"
+        />
       </label>
-      <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? 'Salvando…' : 'Salvar produto'}
+        <Button type="submit" loading={save.isPending}>
+          Salvar produto
         </Button>
       </div>
     </form>

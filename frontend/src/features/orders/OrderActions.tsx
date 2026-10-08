@@ -1,3 +1,4 @@
+import { ArrowCounterClockwiseIcon, CreditCardIcon } from '@phosphor-icons/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ordersApi } from '../../api/endpoints'
@@ -68,53 +69,74 @@ export function OrderActions({ order }: { order: Order }) {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {canPay && <Button onClick={() => open('pay')}>Pagar</Button>}
       {canCancel && (
-        <Button variant="secondary" onClick={() => open('cancel')}>
+        <Button variant="outline" onClick={() => open('cancel')}>
           Cancelar pedido
         </Button>
       )}
+      {canPay && (
+        <Button leading={<CreditCardIcon size={16} aria-hidden="true" />} onClick={() => open('pay')}>
+          Pagar
+        </Button>
+      )}
       {canRefund && (
-        <Button variant="danger" onClick={() => open('refund')}>
+        <Button
+          variant="outline"
+          className="text-danger-strong"
+          leading={<ArrowCounterClockwiseIcon size={16} aria-hidden="true" />}
+          onClick={() => open('refund')}
+        >
           Estornar
         </Button>
       )}
 
-      <Dialog open={pending !== null} title={pending ? titles[pending] : ''} onClose={close}>
-        <div className="space-y-4">
-          <ErrorAlert error={transition.error} />
-          {pending === 'pay' && (
-            <>
-              <p className="text-sm">
-                Total a receber: <strong>{total}</strong>
-              </p>
-              <PaymentMethodPicker value={paymentMethod} onChange={setPaymentMethod} />
-            </>
-          )}
-          {pending === 'cancel' && (
-            <p className="text-sm">O pedido pendente de {total} será cancelado. Esta ação não pode ser desfeita.</p>
-          )}
-          {pending === 'refund' && (
-            <p className="text-sm">O pagamento de {total} será estornado. Esta ação não pode ser desfeita.</p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={close}>
+      <Dialog
+        open={pending !== null}
+        title={pending ? titles[pending] : ''}
+        size={pending === 'pay' ? 'md' : 'sm'}
+        onClose={close}
+        footer={
+          <>
+            <Button variant="outline" onClick={close}>
               Voltar
             </Button>
             <Button
               variant={pending === 'pay' ? 'primary' : 'danger'}
-              disabled={transition.isPending || (pending === 'pay' && !paymentMethod)}
+              loading={transition.isPending}
+              disabled={pending === 'pay' && !paymentMethod}
               onClick={() => pending && transition.mutate(pending)}
             >
-              {transition.isPending
-                ? 'Enviando…'
-                : pending === 'pay'
-                  ? 'Confirmar pagamento'
-                  : pending === 'cancel'
-                    ? 'Confirmar cancelamento'
-                    : 'Confirmar estorno'}
+              {pending === 'pay'
+                ? 'Confirmar pagamento'
+                : pending === 'cancel'
+                  ? 'Confirmar cancelamento'
+                  : 'Confirmar estorno'}
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <ErrorAlert error={transition.error} />
+          {pending === 'pay' && (
+            <>
+              <div className="rounded-xl bg-ink/[0.03] px-4 py-3">
+                <p className="text-xs text-ink/65">Total a receber</p>
+                <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular">{total}</p>
+              </div>
+              <PaymentMethodPicker value={paymentMethod} onChange={setPaymentMethod} />
+            </>
+          )}
+          {pending === 'cancel' && (
+            <p className="text-sm text-ink/80">
+              O pedido pendente de <strong>{total}</strong> será cancelado. Esta ação não pode ser desfeita.
+            </p>
+          )}
+          {pending === 'refund' && (
+            <p className="text-sm text-ink/80">
+              O pagamento de <strong>{total}</strong> será estornado e o estorno enviado ao PulseBoard. Esta
+              ação não pode ser desfeita.
+            </p>
+          )}
         </div>
       </Dialog>
     </div>

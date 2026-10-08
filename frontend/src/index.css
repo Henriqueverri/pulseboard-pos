@@ -1,1 +1,136 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/*
+ * PulseBoard design tokens (same values as the PulseBoard Web), as Tailwind 4 theme variables:
+ * `bg-ink`, `text-ink/65`, `bg-brand-50`, `bg-success-soft`, `rounded-lg`, `shadow-pop`...
+ */
+@theme {
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: rgb(28 28 28);
+  --color-canvas: rgb(249 249 250);
+  --color-surface: rgb(255 255 255);
+
+  --color-brand-50: rgb(243 243 254);
+  --color-brand-100: rgb(231 231 253);
+  --color-brand-200: rgb(206 206 252);
+  --color-brand-300: rgb(173 173 251);
+  --color-brand-400: rgb(130 130 238);
+  --color-brand-500: rgb(107 107 226);
+  --color-brand-600: rgb(91 91 214);
+  --color-brand-700: rgb(72 72 184);
+
+  --color-success: rgb(113 221 140);
+  --color-success-soft: rgb(230 248 235);
+  --color-success-strong: rgb(26 118 58);
+
+  --color-warning: rgb(255 181 91);
+  --color-warning-soft: rgb(255 243 227);
+  --color-warning-strong: rgb(150 86 0);
+
+  --color-info: rgb(125 187 255);
+  --color-info-soft: rgb(232 243 255);
+  --color-info-strong: rgb(25 94 168);
+
+  --color-danger: rgb(255 71 71);
+  --color-danger-soft: rgb(255 235 235);
+  --color-danger-strong: rgb(190 30 30);
+
+  --color-purple: rgb(184 153 235);
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.05);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.04);
+
+  --spacing-sidebar: 240px;
+
+  --animate-fade-in: fade-in 150ms ease-out;
+  --animate-dialog-in: dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-sheet-in: sheet-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drawer-left: drawer-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-drawer-right: drawer-right 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      scale: 0.97;
+    }
+    to {
+      opacity: 1;
+      scale: 1;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      translate: 0 100%;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+  @keyframes drawer-left {
+    from {
+      translate: -100% 0;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+  @keyframes drawer-right {
+    from {
+      translate: 100% 0;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+}
+
+@layer base {
+  html {
+    @apply bg-canvas text-ink antialiased;
+    font-feature-settings: 'ss01', 'cv01';
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply min-h-screen text-sm;
+  }
+
+  :focus-visible {
+    @apply ring-2 ring-brand-500/60 ring-offset-2 ring-offset-surface outline-none;
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-ink;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}

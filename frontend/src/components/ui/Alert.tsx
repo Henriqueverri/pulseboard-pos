@@ -1,21 +1,44 @@
+import { CheckCircleIcon, InfoIcon, WarningCircleIcon, WarningIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 import { ApiError } from '../../api/client'
+import { cn } from '../../lib/cn'
+
+type Tone = 'info' | 'success' | 'warning' | 'danger'
+
+const tones: Record<Tone, string> = {
+  info: 'bg-info-soft text-info-strong',
+  success: 'bg-success-soft text-success-strong',
+  warning: 'bg-warning-soft text-warning-strong',
+  danger: 'bg-danger-soft text-danger-strong',
+}
+
+const icons = {
+  info: InfoIcon,
+  success: CheckCircleIcon,
+  warning: WarningIcon,
+  danger: WarningCircleIcon,
+}
 
 export function Alert({
-  tone = 'error',
+  tone = 'danger',
+  title,
   children,
 }: {
-  tone?: 'error' | 'success' | 'info'
-  children: ReactNode
+  tone?: Tone
+  title?: ReactNode
+  children?: ReactNode
 }) {
-  const tones = {
-    error: 'border-red-200 bg-red-50 text-red-800',
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    info: 'border-sky-200 bg-sky-50 text-sky-800',
-  }
+  const Icon = icons[tone]
   return (
-    <div role={tone === 'error' ? 'alert' : 'status'} className={`rounded-md border px-3 py-2 text-sm ${tones[tone]}`}>
-      {children}
+    <div
+      role={tone === 'danger' ? 'alert' : 'status'}
+      className={cn('flex gap-3 rounded-lg px-3.5 py-3 text-sm', tones[tone])}
+    >
+      <Icon size={18} weight="fill" className="mt-px shrink-0" aria-hidden="true" />
+      <div className="min-w-0">
+        {title && <p className="font-medium">{title}</p>}
+        {children && <div className={title ? 'mt-0.5 opacity-90' : ''}>{children}</div>}
+      </div>
     </div>
   )
 }

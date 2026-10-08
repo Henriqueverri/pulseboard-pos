@@ -28,8 +28,22 @@ export function PaymentDialog({
   onClose: () => void
 }) {
   return (
-    <Dialog open={open} title="Pagamento" onClose={() => !submitting && onClose()}>
-      <div className="space-y-4">
+    <Dialog
+      open={open}
+      title="Pagamento"
+      onClose={() => !submitting && onClose()}
+      footer={
+        <>
+          <Button variant="outline" disabled={submitting} onClick={onClose}>
+            Voltar
+          </Button>
+          <Button loading={submitting} onClick={onConfirm}>
+            Confirmar pagamento
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-5">
         <ErrorAlert error={error} />
         {issues.length > 0 && (
           <Alert>
@@ -38,18 +52,11 @@ export function PaymentDialog({
             ))}
           </Alert>
         )}
-        <p className="text-sm">
-          Total: <strong className="tabular-nums">{formatCents(totalCents)}</strong>
-        </p>
-        <PaymentMethodPicker value={paymentMethod} onChange={onPaymentMethodChange} />
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" disabled={submitting} onClick={onClose}>
-            Voltar
-          </Button>
-          <Button disabled={submitting} onClick={onConfirm}>
-            {submitting ? 'Processando…' : 'Confirmar pagamento'}
-          </Button>
+        <div className="rounded-xl bg-ink/[0.03] px-4 py-3">
+          <p className="text-xs text-ink/65">Total a receber</p>
+          <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular">{formatCents(totalCents)}</p>
         </div>
+        <PaymentMethodPicker value={paymentMethod} onChange={onPaymentMethodChange} />
       </div>
     </Dialog>
   )

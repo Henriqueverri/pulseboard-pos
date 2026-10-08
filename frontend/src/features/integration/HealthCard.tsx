@@ -1,45 +1,50 @@
+import type { ReactNode } from 'react'
 import type { IntegrationHealth } from '../../api/types'
-import { Badge } from '../../components/ui/Badge'
+import { Tag } from '../../components/ui/Badge'
 import { formatDateTime } from '../../lib/dates'
+
+function Stat({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0 px-5 py-4">
+      <h3 className="text-xs text-ink/65">{label}</h3>
+      <div className="mt-1.5 text-sm">{children}</div>
+    </div>
+  )
+}
 
 export function HealthCard({ health }: { health: IntegrationHealth }) {
   const state = !health.enabled ? (
-    <Badge>Desligada</Badge>
+    <Tag dot>Desligada</Tag>
   ) : health.pausedUntil ? (
-    <Badge tone="red">Pausada até {formatDateTime(health.pausedUntil)}</Badge>
+    <Tag tone="danger" dot>
+      Pausada até {formatDateTime(health.pausedUntil)}
+    </Tag>
   ) : (
-    <Badge tone="green">Ligada</Badge>
+    <Tag tone="success" dot>
+      Ligada
+    </Tag>
   )
 
   return (
     <section
       aria-label="Saúde da integração"
-      className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 text-sm sm:grid-cols-3 lg:grid-cols-6"
+      className="grid divide-ink/[0.07] rounded-xl border border-ink/[0.07] bg-surface max-lg:divide-y sm:grid-cols-2 lg:grid-cols-[auto_minmax(0,2fr)_minmax(0,1fr)_auto_auto] lg:divide-x"
     >
-      <div>
-        <h3 className="text-slate-500">Estado</h3>
-        <p className="mt-1">{state}</p>
-      </div>
-      <div className="sm:col-span-2">
-        <h3 className="text-slate-500">Destino</h3>
-        <p className="mt-1 font-mono text-xs break-all">{health.targetUrl}</p>
-      </div>
-      <div>
-        <h3 className="text-slate-500">API Key</h3>
-        <p className="mt-1 font-mono text-xs">
-          {health.keyPrefix ? `pb_${health.keyPrefix}_…` : 'não configurada'}
-        </p>
-      </div>
-      <div>
-        <h3 className="text-slate-500">Pendentes / falhas</h3>
-        <p className="mt-1 font-medium tabular-nums">
+      <Stat label="Estado">{state}</Stat>
+      <Stat label="Destino">
+        <p className="font-mono text-xs break-all">{health.targetUrl}</p>
+      </Stat>
+      <Stat label="API Key">
+        <p className="font-mono text-xs">{health.keyPrefix ? `pb_${health.keyPrefix}_…` : 'não configurada'}</p>
+      </Stat>
+      <Stat label="Pendentes / falhas">
+        <p className="text-lg font-semibold tracking-tight tabular">
           {health.pending} / {health.failed}
         </p>
-      </div>
-      <div>
-        <h3 className="text-slate-500">Último envio</h3>
-        <p className="mt-1">{formatDateTime(health.lastSentAt)}</p>
-      </div>
+      </Stat>
+      <Stat label="Último envio">
+        <p className="whitespace-nowrap tabular">{formatDateTime(health.lastSentAt)}</p>
+      </Stat>
     </section>
   )
 }

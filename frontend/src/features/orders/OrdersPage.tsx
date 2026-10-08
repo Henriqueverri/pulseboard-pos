@@ -1,11 +1,19 @@
+import { PlusIcon, ReceiptIcon, XIcon } from '@phosphor-icons/react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router'
 import { ordersApi, type OrderFilters } from '../../api/endpoints'
 import type { OrderStatus } from '../../api/types'
+import { PageHeader } from '../../components/layout/PageHeader'
 import { ErrorAlert } from '../../components/ui/Alert'
+import { Avatar } from '../../components/ui/Avatar'
 import { OrderStatusBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
-import { Pagination, Table, Td, Th } from '../../components/ui/Table'
+import { Card } from '../../components/ui/Card'
+import { FilterField, Select } from '../../components/ui/Field'
+import { EmptyState, SkeletonRows } from '../../components/ui/States'
+import { buttonClasses, controlClasses } from '../../components/ui/styles'
+import { Pagination, Table, TBody, Td, Th, THead, Tr } from '../../components/ui/Table'
+import { cn } from '../../lib/cn'
 import { endOfLocalDay, formatDateTime, startOfLocalDay } from '../../lib/dates'
 import { ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import { formatMoney } from '../../lib/money'
@@ -55,110 +63,133 @@ export function OrdersPage() {
     setParams(next, { replace: true })
   }
 
+  const hasFilters = ['status', 'from', 'to', 'number'].some((key) => params.get(key))
+
   return (
-    <section className="space-y-4">
-      <h1 className="text-2xl font-semibold">Pedidos</h1>
+    <>
+      <PageHeader
+        title="Pedidos"
+        description="Vendas do caixa, do mais recente para o mais antigo."
+        actions={
+          <Link to="/" className={buttonClasses()}>
+            <PlusIcon size={16} weight="bold" aria-hidden="true" />
+            Nova venda
+          </Link>
+        }
+      />
 
-      <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="space-y-1">
-          <span className="block font-medium text-slate-700">Status</span>
-          <select
-            className="rounded-md border border-slate-300 px-3 py-2"
-            value={params.get('status') ?? ''}
-            onChange={(event) => update({ status: event.target.value })}
-          >
-            <option value="">Todos</option>
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {ORDER_STATUS_LABELS[status]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-1">
-          <span className="block font-medium text-slate-700">De</span>
-          <input
-            type="date"
-            className="rounded-md border border-slate-300 px-3 py-2"
-            value={params.get('from') ?? ''}
-            onChange={(event) => update({ from: event.target.value })}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="block font-medium text-slate-700">Até</span>
-          <input
-            type="date"
-            className="rounded-md border border-slate-300 px-3 py-2"
-            value={params.get('to') ?? ''}
-            onChange={(event) => update({ to: event.target.value })}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="block font-medium text-slate-700">Número</span>
-          <input
-            type="number"
-            min={1}
-            className="w-28 rounded-md border border-slate-300 px-3 py-2"
-            value={params.get('number') ?? ''}
-            onChange={(event) => update({ number: event.target.value })}
-          />
-        </label>
-        <Button variant="ghost" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
-          Limpar filtros
-        </Button>
-      </div>
+      <Card padding="none">
+        <div className="flex flex-wrap items-end gap-3 border-b border-ink/[0.07] p-4">
+          <FilterField label="Status">
+            <Select
+              className="w-40"
+              value={params.get('status') ?? ''}
+              onChange={(event) => update({ status: event.target.value })}
+            >
+              <option value="">Todos</option>
+              {STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {ORDER_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </Select>
+          </FilterField>
+          <FilterField label="De">
+            <input
+              type="date"
+              className={controlClasses()}
+              value={params.get('from') ?? ''}
+              onChange={(event) => update({ from: event.target.value })}
+            />
+          </FilterField>
+          <FilterField label="Até">
+            <input
+              type="date"
+              className={controlClasses()}
+              value={params.get('to') ?? ''}
+              onChange={(event) => update({ to: event.target.value })}
+            />
+          </FilterField>
+          <FilterField label="Número">
+            <input
+              type="number"
+              min={1}
+              placeholder="1001"
+              className={cn(controlClasses(), 'w-28')}
+              value={params.get('number') ?? ''}
+              onChange={(event) => update({ number: event.target.value })}
+            />
+          </FilterField>
+          {hasFilters && (
+            <Button
+              variant="ghost"
+              leading={<XIcon size={14} aria-hidden="true" />}
+              onClick={() => setParams(new URLSearchParams(), { replace: true })}
+            >
+              Limpar filtros
+            </Button>
+          )}
+        </div>
 
-      <ErrorAlert error={orders.error} />
-
-      {orders.data && (
-        <>
-          <Table>
-            <thead className="bg-slate-50">
-              <tr>
+        {orders.error && (
+          <div className="p-4">
+            <ErrorAlert error={orders.error} />
+          </div>
+        )}
+        {orders.isPending && <SkeletonRows />}
+        {orders.data?.content.length === 0 && (
+          <EmptyState
+            icon={ReceiptIcon}
+            title="Nenhum pedido encontrado."
+            description={hasFilters ? 'Ajuste ou limpe os filtros.' : 'As vendas feitas no caixa aparecem aqui.'}
+          />
+        )}
+        {orders.data && orders.data.content.length > 0 && (
+          <>
+            <Table caption="Pedidos">
+              <THead>
                 <Th>Número</Th>
                 <Th>Data</Th>
                 <Th>Cliente</Th>
                 <Th>Status</Th>
                 <Th>Pagamento</Th>
                 <Th className="text-right">Total</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {orders.data.content.map((order) => (
-                <tr key={order.id}>
-                  <Td>
-                    <Link className="font-medium text-indigo-700 hover:underline" to={`/orders/${order.id}`}>
-                      #{order.number}
-                    </Link>
-                  </Td>
-                  <Td>{formatDateTime(order.createdAt)}</Td>
-                  <Td>{order.customer.name}</Td>
-                  <Td>
-                    <OrderStatusBadge status={order.status} />
-                  </Td>
-                  <Td>{order.paymentMethod ? PAYMENT_METHOD_LABELS[order.paymentMethod] : '—'}</Td>
-                  <Td className="text-right tabular-nums">
-                    {formatMoney(order.total, order.currency)}
-                  </Td>
-                </tr>
-              ))}
-              {orders.data.content.length === 0 && (
-                <tr>
-                  <Td colSpan={6} className="py-6 text-center text-slate-500">
-                    Nenhum pedido encontrado.
-                  </Td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-          <Pagination
-            page={orders.data.page}
-            totalPages={orders.data.totalPages}
-            onChange={(page) => update({ page: page > 0 ? String(page) : '' })}
-          />
-        </>
-      )}
-      {orders.isPending && <p className="text-sm text-slate-500">Carregando…</p>}
-    </section>
+              </THead>
+              <TBody>
+                {orders.data.content.map((order) => (
+                  <Tr key={order.id}>
+                    <Td>
+                      <Link className="font-medium text-brand-600 hover:underline" to={`/orders/${order.id}`}>
+                        #{order.number}
+                      </Link>
+                    </Td>
+                    <Td className="whitespace-nowrap text-ink/65 tabular">{formatDateTime(order.createdAt)}</Td>
+                    <Td>
+                      <span className="flex items-center gap-2.5">
+                        <Avatar name={order.customer.name} size="sm" />
+                        {order.customer.name}
+                      </span>
+                    </Td>
+                    <Td>
+                      <OrderStatusBadge status={order.status} />
+                    </Td>
+                    <Td className="text-ink/65">
+                      {order.paymentMethod ? PAYMENT_METHOD_LABELS[order.paymentMethod] : '—'}
+                    </Td>
+                    <Td className="text-right font-medium tabular">{formatMoney(order.total, order.currency)}</Td>
+                  </Tr>
+                ))}
+              </TBody>
+            </Table>
+            <Pagination
+              page={orders.data.page}
+              totalPages={orders.data.totalPages}
+              totalElements={orders.data.totalElements}
+              onChange={(page) => update({ page: page > 0 ? String(page) : '' })}
+            />
+          </>
+        )}
+      </Card>
+    </>
   )
 }

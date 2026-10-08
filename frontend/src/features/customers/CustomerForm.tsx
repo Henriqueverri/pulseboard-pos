@@ -74,12 +74,12 @@ export function CustomerForm({
         error={errors.document?.message}
         {...register('document')}
       />
-      <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel}>
+      <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? 'Salvando…' : 'Salvar cliente'}
+        <Button type="submit" loading={save.isPending}>
+          Salvar cliente
         </Button>
       </div>
     </form>

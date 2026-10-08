@@ -1,45 +1,68 @@
 import type { ReactNode } from 'react'
 import type { FailureKind, IntegrationEventStatus, OrderStatus } from '../../api/types'
+import { cn } from '../../lib/cn'
 import {
   FAILURE_KIND_LABELS,
   INTEGRATION_STATUS_LABELS,
   ORDER_STATUS_LABELS,
 } from '../../lib/labels'
 
-type Tone = 'gray' | 'green' | 'amber' | 'red' | 'blue'
+export type TagTone = 'neutral' | 'success' | 'warning' | 'info' | 'danger' | 'brand'
 
-const tones: Record<Tone, string> = {
-  gray: 'bg-slate-100 text-slate-700',
-  green: 'bg-emerald-100 text-emerald-800',
-  amber: 'bg-amber-100 text-amber-800',
-  red: 'bg-red-100 text-red-800',
-  blue: 'bg-sky-100 text-sky-800',
+const tones: Record<TagTone, { body: string; dot: string }> = {
+  neutral: { body: 'bg-ink/[0.05] text-ink/70', dot: 'bg-ink/40' },
+  success: { body: 'bg-success-soft text-success-strong', dot: 'bg-success' },
+  warning: { body: 'bg-warning-soft text-warning-strong', dot: 'bg-warning' },
+  info: { body: 'bg-info-soft text-info-strong', dot: 'bg-info' },
+  danger: { body: 'bg-danger-soft text-danger-strong', dot: 'bg-danger' },
+  brand: { body: 'bg-brand-50 text-brand-700', dot: 'bg-brand-500' },
 }
 
-export function Badge({ tone = 'gray', children }: { tone?: Tone; children: ReactNode }) {
+export function Tag({
+  tone = 'neutral',
+  dot = false,
+  size = 'md',
+  children,
+}: {
+  tone?: TagTone
+  dot?: boolean
+  size?: 'sm' | 'md'
+  children: ReactNode
+}) {
   return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 rounded-md font-medium whitespace-nowrap',
+        tones[tone].body,
+        size === 'sm' ? 'h-5 px-1.5 text-[11px]' : 'h-6 px-2 text-xs',
+      )}
+    >
+      {dot && <span className={cn('size-1.5 rounded-full', tones[tone].dot)} aria-hidden="true" />}
       {children}
     </span>
   )
 }
 
-const statusTones: Record<OrderStatus, Tone> = {
-  PENDING: 'amber',
-  PAID: 'green',
-  CANCELED: 'gray',
-  REFUNDED: 'red',
+const orderTones: Record<OrderStatus, TagTone> = {
+  PENDING: 'warning',
+  PAID: 'success',
+  CANCELED: 'danger',
+  REFUNDED: 'info',
 }
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
-  return <Badge tone={statusTones[status]}>{ORDER_STATUS_LABELS[status]}</Badge>
+  return (
+    <Tag tone={orderTones[status]} dot>
+      {ORDER_STATUS_LABELS[status]}
+    </Tag>
+  )
 }
 
-const integrationTones: Record<IntegrationEventStatus, Tone> = {
-  PENDING: 'amber',
-  PROCESSING: 'blue',
-  SENT: 'green',
-  FAILED: 'red',
+const integrationTones: Record<IntegrationEventStatus, TagTone> = {
+  PENDING: 'warning',
+  PROCESSING: 'info',
+  SENT: 'success',
+  FAILED: 'danger',
 }
 
 export function IntegrationStatusBadge({
@@ -50,9 +73,9 @@ export function IntegrationStatusBadge({
   failureKind: FailureKind | null
 }) {
   return (
-    <Badge tone={integrationTones[status]}>
+    <Tag tone={integrationTones[status]} dot>
       {INTEGRATION_STATUS_LABELS[status]}
       {failureKind && ` (${FAILURE_KIND_LABELS[failureKind]})`}
-    </Badge>
+    </Tag>
   )
 }

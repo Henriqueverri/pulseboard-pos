@@ -10,7 +10,7 @@ describe('authentication', () => {
   it('sends anonymous users to the login', async () => {
     const { router } = renderApp('/orders')
 
-    expect(await screen.findByRole('heading', { name: 'PulseBoard POS' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Entrar no caixa' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
   })
 

@@ -1,26 +1,38 @@
-import type { ButtonHTMLAttributes } from 'react'
-
-type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
-
-const variants: Record<Variant, string> = {
-  primary: 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-indigo-300',
-  secondary:
-    'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 disabled:text-slate-400',
-  danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
-  ghost: 'text-slate-700 hover:bg-slate-100 disabled:text-slate-400',
-}
+import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { cn } from '../../lib/cn'
+import { Spinner } from './Spinner'
+import { buttonClasses, type ButtonStyle } from './styles'
 
 export function Button({
-  variant = 'primary',
-  className = '',
+  variant,
+  size = 'md',
+  icon,
+  block,
+  loading = false,
+  leading,
+  className,
   type = 'button',
+  disabled,
+  children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> &
+  ButtonStyle & { loading?: boolean; leading?: ReactNode }) {
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed ${variants[variant]} ${className}`}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={cn(buttonClasses({ variant, size, icon, block }), className)}
       {...props}
-    />
+    >
+      {loading ? (
+        <span aria-hidden="true" className="flex">
+          <Spinner size={size === 'sm' ? 14 : 16} />
+        </span>
+      ) : (
+        leading
+      )}
+      {children}
+    </button>
   )
 }

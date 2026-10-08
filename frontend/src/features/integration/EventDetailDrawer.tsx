@@ -1,10 +1,14 @@
+import { ArrowClockwiseIcon, ArrowSquareOutIcon } from '@phosphor-icons/react'
 import { useQuery } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { integrationApi } from '../../api/endpoints'
-import { ErrorAlert } from '../../components/ui/Alert'
-import { IntegrationStatusBadge } from '../../components/ui/Badge'
+import { Alert, ErrorAlert } from '../../components/ui/Alert'
+import { IntegrationStatusBadge, Tag } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
-import { Drawer } from '../../components/ui/Drawer'
+import { Drawer } from '../../components/ui/Dialog'
+import { Skeleton } from '../../components/ui/States'
+import { cn } from '../../lib/cn'
 import { formatDateTime } from '../../lib/dates'
 import { EVENT_TYPE_LABELS } from '../../lib/labels'
 import { POLL_INTERVAL_MS, useRetryEvent } from './events'
@@ -21,61 +25,73 @@ export function EventDetailDrawer({ eventId, onClose }: { eventId: string | null
   const data = event.data
 
   return (
-    <Drawer
-      open={eventId !== null}
-      title={data ? `Evento #${data.sequence}` : 'Evento'}
-      onClose={onClose}
-    >
-      <div className="space-y-4 text-sm">
+    <Drawer open={eventId !== null} title={data ? `Evento #${data.sequence}` : 'Evento'} onClose={onClose}>
+      <div className="space-y-6 p-5 text-sm">
         <ErrorAlert error={event.error ?? retry.error} />
-        {event.isPending && <p className="text-slate-500">Carregando…</p>}
+        {event.isPending && (
+          <div className="space-y-3" aria-busy="true">
+            <span className="sr-only">Carregando…</span>
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        )}
         {data && (
           <>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <IntegrationStatusBadge status={data.status} failureKind={data.failureKind} />
-              <span>{EVENT_TYPE_LABELS[data.eventType]}</span>
-              <Link className="text-indigo-700 hover:underline" to={`/orders/${data.orderId}`}>
+              <Tag tone="brand">{EVENT_TYPE_LABELS[data.eventType]}</Tag>
+              <Link
+                className="ml-auto inline-flex items-center gap-1 text-brand-600 hover:underline"
+                to={`/orders/${data.orderId}`}
+              >
                 Pedido #{data.orderNumber ?? '—'}
+                <ArrowSquareOutIcon size={14} aria-hidden="true" />
               </Link>
             </div>
-            <dl className="grid grid-cols-2 gap-3">
-              <Field label="ID externo" value={data.externalId} mono />
-              <Field label="Tentativas" value={String(data.attempts)} />
-              <Field label="Último HTTP status" value={data.lastHttpStatus?.toString() ?? '—'} />
-              <Field label="Código do PulseBoard" value={data.lastErrorCode ?? '—'} mono />
-              <Field label="X-Request-Id enviado" value={data.requestId} mono />
-              <Field label="X-Request-Id da resposta" value={data.lastRequestId ?? '—'} mono />
-              <Field label="Última tentativa" value={formatDateTime(data.lastAttemptAt)} />
-              <Field label="Próxima tentativa" value={formatDateTime(data.nextAttemptAt)} />
-              <Field label="Enviado em" value={formatDateTime(data.processedAt)} />
-              <Field label="ID no PulseBoard" value={data.remoteId ?? '—'} mono />
-            </dl>
+
             {data.blockedBy !== null && (
-              <p className="rounded-md bg-amber-50 px-3 py-2 text-amber-800">
-                Aguardando o evento #{data.blockedBy} do mesmo pedido ser enviado.
-              </p>
+              <Alert tone="warning">Aguardando o evento #{data.blockedBy} do mesmo pedido ser enviado.</Alert>
             )}
-            {data.lastError && (
-              <div>
-                <h3 className="font-medium text-slate-700">Último erro</h3>
-                <p className="mt-1 break-words">{data.lastError}</p>
-              </div>
-            )}
-            <div>
-              <h3 className="font-medium text-slate-700">Payload enviado</h3>
+            {data.lastError && <Alert title="Último erro">{data.lastError}</Alert>}
+
+            <Section title="Entrega">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <Field label="Tentativas" value={String(data.attempts)} />
+                <Field label="Último HTTP status" value={data.lastHttpStatus?.toString() ?? '—'} />
+                <Field label="Última tentativa" value={formatDateTime(data.lastAttemptAt)} />
+                <Field label="Próxima tentativa" value={formatDateTime(data.nextAttemptAt)} />
+                <Field label="Enviado em" value={formatDateTime(data.processedAt)} />
+                <Field label="Código do PulseBoard" value={data.lastErrorCode ?? '—'} mono />
+              </dl>
+            </Section>
+
+            <Section title="Rastreamento">
+              <dl className="grid gap-y-3">
+                <Field label="ID externo" value={data.externalId} mono />
+                <Field label="X-Request-Id enviado" value={data.requestId} mono />
+                <Field label="X-Request-Id da resposta" value={data.lastRequestId ?? '—'} mono />
+                <Field label="ID no PulseBoard" value={data.remoteId ?? '—'} mono />
+              </dl>
+            </Section>
+
+            <Section title="Payload enviado">
               <pre
                 aria-label="Payload enviado"
-                className="mt-1 overflow-x-auto rounded-md bg-slate-900 p-3 font-mono text-xs text-slate-100"
+                className="overflow-x-auto rounded-lg bg-ink p-4 font-mono text-xs leading-relaxed text-white/90"
               >
                 {JSON.stringify(data.payload, null, 2)}
               </pre>
-            </div>
+            </Section>
+
             {data.status === 'FAILED' && (
-              <div className="flex justify-end">
-                <Button disabled={retry.isPending} onClick={() => retry.mutate(data.id)}>
-                  Reprocessar
-                </Button>
-              </div>
+              <Button
+                block
+                loading={retry.isPending}
+                leading={<ArrowClockwiseIcon size={16} aria-hidden="true" />}
+                onClick={() => retry.mutate(data.id)}
+              >
+                Reprocessar
+              </Button>
             )}
           </>
         )}
@@ -84,11 +100,20 @@ export function EventDetailDrawer({ eventId, onClose }: { eventId: string | null
   )
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-xs font-semibold tracking-wide text-ink/55 uppercase">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
 function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div>
-      <dt className="text-slate-500">{label}</dt>
-      <dd className={mono ? 'font-mono text-xs break-all' : ''}>{value}</dd>
+    <div className="min-w-0">
+      <dt className="text-xs text-ink/65">{label}</dt>
+      <dd className={cn('mt-0.5', mono ? 'font-mono text-xs break-all' : 'tabular')}>{value}</dd>
     </div>
   )
 }

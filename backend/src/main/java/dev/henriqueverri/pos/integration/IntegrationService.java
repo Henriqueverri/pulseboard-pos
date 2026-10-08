@@ -102,7 +102,10 @@ public class IntegrationService {
       throw ApiException.conflict(
           ErrorCodes.INTEGRATION_EVENT_NOT_FAILED, "Só eventos FAILED podem ser reprocessados.");
     }
-    log.info("Outbox event {} queued again by manual retry", id);
+    log.atInfo()
+        .addKeyValue("event_id", id)
+        .addKeyValue("outcome", "manual_retry")
+        .log("Outbox event queued again by manual retry");
     return get(id);
   }
 
@@ -111,7 +114,10 @@ public class IntegrationService {
   public RetryConfigurationFailuresResponse retryConfigurationFailures() {
     int retried = store.retryConfigurationFailures(clock.instant());
     pause.clear();
-    log.info("{} configuration failures queued again; integration pause cleared", retried);
+    log.atInfo()
+        .addKeyValue("retried", retried)
+        .addKeyValue("outcome", "manual_retry_configuration_failures")
+        .log("Configuration failures queued again; integration pause cleared");
     return new RetryConfigurationFailuresResponse(retried);
   }
 

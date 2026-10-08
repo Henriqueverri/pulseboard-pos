@@ -225,6 +225,18 @@ public class OutboxStore {
         .update();
   }
 
+  /** Later events of the same order that cannot be claimed while {@code event} is not sent. */
+  public long countWaitingBehind(ClaimedEvent event) {
+    return jdbc.sql(
+            "SELECT count(*) FROM outbox_events"
+                + " WHERE aggregate_id = :aggregateId AND sequence > :sequence"
+                + " AND status <> 'SENT'")
+        .param("aggregateId", event.aggregateId())
+        .param("sequence", event.sequence())
+        .query(Long.class)
+        .single();
+  }
+
   private JdbcClient.StatementSpec owned(String sql, ClaimedEvent event, Instant now) {
     return jdbc.sql(sql)
         .param("id", event.id())

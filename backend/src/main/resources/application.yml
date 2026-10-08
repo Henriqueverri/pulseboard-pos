@@ -64,6 +64,14 @@ pos:
         password: ${POS_CASHIER_PASSWORD:}
         name: ${POS_CASHIER_NAME:Caixa}
 
+logging:
+  structured:
+    format:
+      # JSON lines (Spring Boot's native Logstash layout) with the MDC (request_id, event_id) and the
+      # key-value fields of each line. POS_LOG_FORMAT=ecs or gelf switch layout; an empty value
+      # (POS_LOG_FORMAT=) brings back the plain-text console for local development.
+      console: ${POS_LOG_FORMAT:logstash}
+
 management:
   endpoints:
     web:
@@ -71,4 +79,7 @@ management:
         include: health
   endpoint:
     health:
-      show-details: never
+      # Anonymous callers (Docker healthcheck, load balancer) only see the status; an ADMIN token
+      # also sees the components, including pulseBoard (state, key prefix, backlog — never the key).
+      show-details: when-authorized
+      roles: ADMIN

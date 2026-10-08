@@ -1,0 +1,5 @@
+-- Baseline do schema do PulseBoard POS (F7 - Foundation).
+--
+-- Intencionalmente sem tabelas: esta migration apenas inaugura o historico do Flyway
+-- (flyway_schema_history) e comprova que as migrations rodam do zero no PostgreSQL.
+-- As tabelas de dominio chegam nas fases seguintes, em novas versoes (V2__, V3__, ...).

@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POS_DB_NAME:-pulseboard_pos}
+      POSTGRES_USER: ${POS_DB_USER:-pos}
+      POSTGRES_PASSWORD: ${POS_DB_PASSWORD:-pos}
+    ports:
+      # 5433 on the host so it does not collide with the PulseBoard PostgreSQL on 5432.
+      - "${POS_DB_PORT:-5433}:5432"
+    volumes:
+      - pos-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pos-db-data:

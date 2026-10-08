@@ -2,7 +2,7 @@
 
 Ponto de venda (POS) que faz parte do ecossistema [PulseBoard](https://app.henriqueverri.dev). É um **sistema externo** ao PulseBoard: tem outro domínio, outro banco e outro ciclo de deploy, e só vai conhecer o PulseBoard pelo contrato público de ingestão (`POST /api/v1/ingest/*` com API Key). Nenhum código ou banco é compartilhado entre os dois repositórios.
 
-> **Status: F9 — Autenticação.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail, autenticação JWT com papéis ADMIN/CASHIER e testes com PostgreSQL real. Ainda **não existem** frontend, outbox nem integração com o PulseBoard; eles chegam nas próximas fases.
+> **Status: F10 — Frontend React.** O backend tem produtos, clientes e pedidos com ciclo de vida completo, API REST documentada no Swagger, erros em ProblemDetail, autenticação JWT com papéis ADMIN/CASHIER e testes com PostgreSQL real. O frontend React opera o caixa (venda completa), pedidos, clientes e produtos, respeitando os papéis. Ainda **não existem** outbox nem integração com o PulseBoard; eles chegam nas próximas fases.
 
 ## Ecossistema (arquitetura alvo)
 
@@ -18,7 +18,7 @@ flowchart LR
 
 Fluxo planejado: a venda acontece no POS; o pedido pago grava um evento numa *transactional outbox* na mesma transação; um worker entrega a venda à API de ingestão do PulseBoard, que a transforma em analytics para o Web e o Mobile.
 
-**O que existe hoje (F9):** apenas `POS API` + `PostgreSQL POS`. O restante do diagrama é arquitetura planejada.
+**O que existe hoje (F10):** `POS Web` + `POS API` + `PostgreSQL POS`. A outbox e o lado PulseBoard do diagrama são arquitetura planejada.
 
 ## Stack
 
@@ -28,7 +28,9 @@ Fluxo planejado: a venda acontece no POS; o pedido pago grava um evento numa *tr
 - Maven (wrapper incluído)
 - JUnit 5 e Testcontainers (PostgreSQL real nos testes, nunca H2)
 - Spotless (google-java-format)
-- Docker Compose (apenas o PostgreSQL)
+- Frontend: React 19, Vite, TypeScript, Tailwind CSS, React Router, TanStack Query, React Hook Form, Zod
+- Testes do frontend: Vitest, Testing Library e MSW
+- Docker Compose (apenas o PostgreSQL); Dockerfile + Nginx para o frontend
 - GitHub Actions
 
 A API é um *resource server* JWT stateless (Spring Security + Nimbus, HS256), sem biblioteca JWT de terceiros. Detalhes na seção [Autenticação](#autenticação).
@@ -51,6 +53,17 @@ pulseboard-pos/
 │       │   ├── application.yml
 │       │   └── db/migration/V1__baseline.sql … V5__users.sql
 │       └── test/java/dev/henriqueverri/pos/   espelha os pacotes + support/
+├── frontend/                        POS Web (React + Vite)
+│   ├── src/
+│   │   ├── main.tsx
+│   │   ├── app/         router, providers, AppLayout, RequireAuth (com papel), queryClient
+│   │   ├── api/         client.ts (único cliente HTTP: JWT, ProblemDetail → ApiError), endpoints, tipos
+│   │   ├── features/    auth, checkout (cartReducer), orders, products, customers
+│   │   ├── components/ui/  Button, Field, Table, Badge, Dialog, Alert (Tailwind puro)
+│   │   ├── lib/         money (string ↔ centavos), dates, labels, erros de formulário
+│   │   └── test/        setup, handlers MSW, banco em memória, renderApp
+│   ├── nginx/default.conf.template
+│   └── Dockerfile
 ├── docker-compose.yml               PostgreSQL do POS (porta 5433)
 ├── .env.example
 └── .github/workflows/ci.yml
@@ -59,6 +72,7 @@ pulseboard-pos/
 ## Pré-requisitos
 
 - JDK 21
+- Node.js 22 LTS (≥ 22.12) e npm, para o frontend
 - Docker (para o PostgreSQL local e para os testes com Testcontainers)
 
 O Maven não precisa estar instalado: use o `./mvnw` dentro de `backend/`.
@@ -100,6 +114,49 @@ curl http://localhost:8080/actuator/health
 - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
 Primeiro faça login em `POST /api/auth/login` (ex.: `caixa@pos.example` / `caixa-dev-password` do `.env.example`), copie o `access_token`, clique em **Authorize** e cole o token (o Swagger adiciona `Bearer`). Roteiro: criar cliente (`POST /api/customers`) → buscar produtos (`GET /api/products?q=PB-001`) → criar pedido (`POST /api/orders`) → pagar (`POST /api/orders/{id}/pay`) → estornar (`POST /api/orders/{id}/refund`). Um segundo pedido pode ser cancelado enquanto `PENDING`; qualquer transição fora da máquina de estados devolve `409`.
+
+### 5. Frontend
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+O Vite sobe em `http://localhost:5173` e encaminha `/api` para a API (mesma origem no navegador, sem CORS). O destino padrão é `http://localhost:8080`; para outra porta, use `VITE_API_PROXY_TARGET` (ver `frontend/.env.example`), por exemplo `VITE_API_PROXY_TARGET=http://localhost:8081 npm run dev`.
+
+Entre com `caixa@pos.example` / `caixa-dev-password` (CASHIER) ou `admin@pos.example` / `admin-dev-password` (ADMIN), do `.env.example`.
+
+#### Imagem Docker (Nginx)
+
+```bash
+docker build -t pulseboard-pos-web frontend
+docker run --rm -p 8088:80 -e POS_API_UPSTREAM=http://host.docker.internal:8080 \
+  --add-host=host.docker.internal:host-gateway pulseboard-pos-web
+```
+
+O Nginx serve o build estático (com fallback de SPA para `index.html`) e faz proxy de `/api/` para `POS_API_UPSTREAM` (padrão `http://api:8080`). O navegador fala só com o Nginx: mesma origem, sem CORS. O Compose do ecossistema completo fica para uma fase posterior.
+
+## Frontend
+
+| Tela | Rota | Papel |
+|---|---|---|
+| Login | `/login` | todos |
+| Caixa | `/` | CASHIER, ADMIN |
+| Pedidos (lista com filtros na URL, detalhe, pagar/cancelar/estornar) | `/orders`, `/orders/:id` | todos; estornar só ADMIN |
+| Clientes (lista, busca, criação, edição) | `/customers` | CASHIER, ADMIN |
+| Produtos (lista, criação, edição, ativar/desativar) | `/products` | ADMIN |
+
+- **Caixa:** busca de produtos ativos por SKU ou nome, carrinho com quantidades, cliente (busca ou cadastro rápido), subtotal e total, forma de pagamento simulada (Dinheiro, Cartão, Pix) e tela de sucesso com o número do pedido. A venda chama `POST /api/orders` e em seguida `POST /api/orders/{id}/pay`; se o pagamento falhar, o pedido fica `PENDING` e a tela aponta para o detalhe dele.
+- **Carrinho:** um `useReducer` (`cartReducer`) com preços e totais em **centavos inteiros**. O total exibido é só prévia: o servidor recalcula tudo. O checkout é validado com Zod antes de chamar a API.
+- **Cliente HTTP único** (`src/api/client.ts`): adiciona `Authorization: Bearer <token>`, transforma qualquer erro em `ApiError` a partir do ProblemDetail (`code`, `detail`, `errors`). Nenhuma tela chama `fetch()` diretamente.
+- **401** em qualquer chamada autenticada limpa a sessão e volta ao login com o aviso "Sua sessão expirou". **403** mostra "Acesso negado" com a mensagem da API. Erros de validação e de conflito (`duplicate_sku`, `duplicate_email`) aparecem no campo correspondente do formulário.
+- **Papéis:** `RequireAuth` bloqueia rotas por papel (CASHIER que abre `/products` vê "Acesso negado") e o menu e as ações de ADMIN (Produtos, Estornar) não aparecem para o CASHIER. O backend continua sendo a fonte da regra.
+- Estado de servidor no TanStack Query (retry só para falha de rede e 5xx, nunca 4xx).
+
+### Onde fica o token (trade-off consciente)
+
+O JWT fica em **`sessionStorage`** (ADR-007): sobrevive ao refresh da aba e some quando ela é fechada. `sessionStorage` é legível por qualquer script da página, então um XSS conseguiria roubar o token. A escolha é deliberada para este projeto (ferramenta interna de portfólio que demonstra Spring Security com JWT stateless, token de 8 h, sem dados sensíveis de pagamento) e **não é a opção mais segura em termos universais**. Em produção, o caminho seria cookie httpOnly ou um BFF, com CSP restritiva. O token nunca vai para `localStorage`.
 
 ## Autenticação
 
@@ -215,6 +272,28 @@ Os testes de integração usam **Testcontainers**: sobem um `postgres:16-alpine`
 
 Para rodar só os testes: `./mvnw test`.
 
+### Frontend
+
+```bash
+cd frontend
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
+Os testes rodam no Vitest com jsdom; as telas usam as rotas e os providers reais e a API é simulada com **MSW** (um banco em memória com as mesmas regras de autenticação e papéis do backend).
+
+| Suíte | Cobre |
+|---|---|
+| `cartReducer.test.ts` | adicionar, somar quantidade, limites de quantidade e de itens, remover, cliente, limpar, totais em centavos |
+| `money.test.ts` | conversão string ↔ centavos sem ponto flutuante, formatação pt-BR |
+| `schemas.test.ts` | schemas Zod de checkout, produto, cliente e login |
+| `client.test.ts` | header Bearer, erro a partir do ProblemDetail, 401 limpa a sessão, 401 do login não, falha de rede |
+| `CheckoutPage.test.tsx` | venda completa com MSW (corpo das requisições conferido), validação, erro 422 da API, pedido criado sem pagamento, cliente criado no caixa |
+| `auth.test.tsx` | anônimo → login, token em `sessionStorage` (nunca `localStorage`), credencial inválida, 401 → login com aviso, logout |
+| `authorization.test.tsx` | CASHIER sem menu/tela de Produtos e sem Estornar; ADMIN com acesso e estorno |
+| `orders.test.tsx` | filtros na URL, pagar, cancelar, conflito 409, 403 → acesso negado |
+| `ProductsPage.test.tsx` | criação com preço em string decimal, `duplicate_sku` no campo, erros de validação do servidor |
+
 ## Formatação
 
 ```bash
@@ -237,4 +316,7 @@ As migrations ficam em `backend/src/main/resources/db/migration`:
 
 ## CI
 
-`.github/workflows/ci.yml` roda o job `backend` em todo push na `main` e em pull requests: Java 21 (Temurin) com cache do Maven, e `./mvnw -B spotless:check verify`. Os testes com Testcontainers usam o Docker do runner do GitHub.
+`.github/workflows/ci.yml` roda dois jobs em todo push na `main` e em pull requests:
+
+- `backend`: Java 21 (Temurin) com cache do Maven, e `./mvnw -B spotless:check verify`. Os testes com Testcontainers usam o Docker do runner do GitHub.
+- `frontend`: Node 22 LTS com cache do npm, e `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`.

@@ -1,0 +1,31 @@
+# Rendered by the nginx image entrypoint (envsubst): only ${POS_API_UPSTREAM} is replaced.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Same origin for the browser: no CORS, and the JWT never goes to another host.
+    location /api/ {
+        proxy_pass ${POS_API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Hashed file names: safe to cache for a long time.
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # SPA fallback; index.html is never cached so a new deploy is picked up.
+    location / {
+        expires -1;
+        try_files $uri $uri/ /index.html;
+    }
+}

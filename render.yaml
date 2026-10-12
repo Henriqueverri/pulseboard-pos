@@ -1,0 +1,90 @@
+# Render Blueprint: POS API (Spring Boot) and POS Web (Nginx + SPA). The database is a
+# Supabase PostgreSQL project of its own (not the PulseBoard one) and the PulseBoard is external.
+# Values marked `sync: false` are secrets: Render asks for them when the Blueprint is created
+# and never reads them from this file afterwards. Steps in docs/deployment.md.
+
+services:
+  - type: web
+    name: pulseboard-pos-api
+    runtime: docker
+    plan: free
+    # Closest to the Supabase project; it cannot be changed later.
+    region: virginia
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    buildFilter:
+      paths:
+        - backend/**
+      ignoredPaths:
+        - backend/src/test/**
+        - backend/**/*.md
+    healthCheckPath: /actuator/health
+    envVars:
+      # Render routes to $PORT; Spring Boot listens on SERVER_PORT.
+      - key: PORT
+        value: "8080"
+      - key: SERVER_PORT
+        value: "8080"
+      # Free instance: 512 MB and a fraction of a CPU. Smaller heap share, serial GC and the C1
+      # compiler only, which also shortens the cold start.
+      - key: JAVA_TOOL_OPTIONS
+        value: -XX:MaxRAMPercentage=60 -XX:+UseSerialGC -Xss512k -XX:ReservedCodeCacheSize=64m -XX:TieredStopAtLevel=1
+      # Supabase session pooler: jdbc:postgresql://aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+      - key: POS_DB_URL
+        sync: false
+      - key: POS_DB_USER
+        sync: false
+      - key: POS_DB_PASSWORD
+        sync: false
+      # The pooler limits connections per project; the API and the worker share this pool.
+      - key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+        value: "3"
+      - key: POS_JWT_SECRET
+        generateValue: true
+      - key: POS_CURRENCY
+        value: BRL
+      # Public demo accounts, listed in the README: the passwords are not secret, but stay out of Git.
+      - key: POS_ADMIN_EMAIL
+        value: admin@pos.example
+      - key: POS_ADMIN_PASSWORD
+        sync: false
+      - key: POS_CASHIER_EMAIL
+        value: caixa@pos.example
+      - key: POS_CASHIER_PASSWORD
+        sync: false
+      - key: PULSEBOARD_INTEGRATION_ENABLED
+        value: "true"
+      - key: PULSEBOARD_API_URL
+        value: https://api.henriqueverri.dev/api/v1
+      # Same value as DEMO_INTEGRATION_KEY in the PulseBoard API: its managed demo key.
+      - key: PULSEBOARD_API_KEY
+        sync: false
+      - key: POS_LOG_FORMAT
+        value: logstash
+
+  - type: web
+    name: pulseboard-pos-web
+    runtime: docker
+    plan: free
+    region: virginia
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    buildFilter:
+      paths:
+        - frontend/**
+      ignoredPaths:
+        - frontend/src/**/*.test.ts
+        - frontend/src/**/*.test.tsx
+        - frontend/**/*.md
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "80"
+      # Free services cannot reach each other over the private network, so Nginx proxies /api to
+      # the API's public URL. Adjust if Render added a suffix to the service name.
+      - key: POS_API_UPSTREAM
+        value: https://pulseboard-pos-api.onrender.com

@@ -65,8 +65,8 @@ services:
     ports:
       - "${POS_WEB_PORT:-8088}:80"
     depends_on:
-      # Nginx only needs the "api" hostname to resolve at startup, not a ready API: until it is,
-      # /api answers 502 and the SPA itself is already served.
+      # Not a ready API: Nginx resolves "api" at request time, so until it is up /api answers 502
+      # and the SPA itself is already served.
       api:
         condition: service_started
     healthcheck:

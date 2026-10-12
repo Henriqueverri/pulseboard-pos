@@ -6,13 +6,32 @@ O POS é um **sistema externo** ao PulseBoard: outro domínio, outro banco, outr
 
 ![Tela de Integração do POS](docs/demo/06-integration-events.png)
 
-**Demo:** roteiro reproduzível com screenshots reais em [`docs/demo.md`](docs/demo.md) (login → venda → pagamento → evento na integração → entrega → falha e retry). *TODO: vídeo/GIF curto do fluxo.*
+## Como avaliar em 5 minutos
+
+O POS está em produção e entrega as vendas à demo pública do PulseBoard:
+
+| Sistema | Link | Conta | Senha |
+|---|---|---|---|
+| **POS** (caixa) | [pos.henriqueverri.dev](https://pos.henriqueverri.dev) | `caixa@pos.example` | `PosCaixa2026!` |
+| **POS** (admin: estorno e Integração) | [pos.henriqueverri.dev](https://pos.henriqueverri.dev) | `admin@pos.example` | `PosAdmin2026!` |
+| **PulseBoard Web** | [app.henriqueverri.dev](https://app.henriqueverri.dev) | `demo@example.com` | `PulseBoardDemo2026!` |
+| **PulseBoard Mobile** (Android) | APK no [README do PulseBoard](https://github.com/Henriqueverri/pulseboard#como-avaliar-em-5-minutos) | `demo@example.com` | `PulseBoardDemo2026!` |
+
+1. No POS, entre como **caixa**, escolha um cliente e um produto e pague com Pix.
+2. Abra o pedido: em segundos a seção "Integração com o PulseBoard" passa de Pendente a **Enviado**.
+3. No PulseBoard, abra **Transações** e busque `pos:` — a venda aparece com origem "Integração", itens e linha do tempo. O dashboard (web e app) já a inclui.
+4. No POS, entre como **admin** e estorne o pedido: no PulseBoard a mesma transação passa a "Estornado".
+5. Na tela **Integração** do POS, veja o payload enviado, o HTTP status e o `X-Request-Id` que aparece também nos logs do PulseBoard.
+
+Os serviços rodam no plano gratuito do Render e hibernam sem uso: **o primeiro acesso pode levar 1 a 2 minutos**. As contas são compartilhadas e os dados são de demonstração. Deploy e operação: [`docs/deployment.md`](docs/deployment.md).
+
+**Demo local:** roteiro reproduzível com screenshots reais em [`docs/demo.md`](docs/demo.md) (login → venda → pagamento → evento na integração → entrega → falha e retry).
 
 ## Sumário
 
 - [Stack](#stack) · [Arquitetura](#arquitetura) · [Fluxo de venda](#fluxo-de-venda) · [Integração e outbox](#integração-com-o-pulseboard)
 - [Observabilidade](#observabilidade) · [Autenticação](#autenticação-e-autorização)
-- [Executar com Docker Compose](#executar-com-docker-compose) · [Executar localmente](#executar-localmente) · [Testes](#testes)
+- [Como avaliar](#como-avaliar-em-5-minutos) · [Executar com Docker Compose](#executar-com-docker-compose) · [Executar localmente](#executar-localmente) · [Testes](#testes) · [Deploy](docs/deployment.md)
 - [Variáveis de ambiente](#variáveis-de-ambiente) · [Usuários demo](#usuários-demo) · [Configurar o PulseBoard](#configurar-a-integração-com-o-pulseboard)
 - [Endpoints](#endpoints-principais) · [Decisões](#decisões-arquiteturais) · [Limitações](#limitações-e-fora-de-escopo) · [Estrutura](#estrutura-de-diretórios)
 
@@ -163,7 +182,7 @@ docker compose up --build     # db → api (espera o db healthy) → web
 | `api` (Spring Boot) | http://localhost:8080 (Swagger em `/swagger-ui/index.html`) | `GET /actuator/health` (inclui o banco) |
 | `db` (PostgreSQL 16) | `localhost:5433` | `pg_isready` |
 
-- O `web` depende apenas de o container da `api` existir (o Nginx precisa resolver o hostname `api`), não de ela estar pronta: até lá, `/api` responde `502` e a SPA já é servida.
+- O `web` não espera a `api` ficar pronta: o Nginx resolve o hostname `api` a cada 30 s, não no start. Até a API subir, `/api` responde `502` e a SPA já é servida.
 - O Nginx serve o build estático com fallback de SPA, faz proxy de `/api/` para `api:8080` e mantém os headers de segurança (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
 - Portas do host configuráveis por `POS_WEB_PORT`, `POS_API_PORT` e `POS_DB_PORT`. Os dados ficam no volume `pos-db-data`; `docker compose down -v` apaga tudo.
 - A API no container fala com um PulseBoard no host via `host.docker.internal` (mapeado com `host-gateway`, funciona no Linux). O PulseBoard precisa escutar em `0.0.0.0`.
@@ -222,7 +241,7 @@ Nunca coloque credenciais reais no `.env.example` ou em qualquer arquivo version
 
 ## Usuários demo
 
-Criados no startup a partir do `.env.example` (troque fora do ambiente local):
+Criados no startup a partir do `.env.example` (troque fora do ambiente local). Em produção as mesmas contas usam as senhas públicas de [Como avaliar](#como-avaliar-em-5-minutos), definidas como secrets no Render.
 
 | Papel | E-mail | Senha |
 |---|---|---|
@@ -238,7 +257,7 @@ O catálogo vem com os 40 SKUs da organização de demo do PulseBoard (`PB-001-E
 3. Coloque a chave em `PULSEBOARD_API_KEY` no seu `.env` (nunca no `.env.example`) e suba o POS (`docker compose up --build`). Fora do Docker, use `PULSEBOARD_API_URL=http://localhost:8000/api/v1`.
 4. Venda no caixa. Em segundos a transação `pos:<uuid>` aparece no PulseBoard como `paid`; estorne e ela passa a `refunded`. Acompanhe em **Integração** (ADMIN) ou em `/actuator/health` com token ADMIN.
 
-Para a produção, troque `PULSEBOARD_API_URL` por `https://api.henriqueverri.dev/api/v1`. Na demo pública as chaves expiram em 24 h e a API pode levar ~1 min no cold start: a outbox absorve os timeouts.
+Em produção, o POS usa a chave gerenciada da demo, que não expira (ver [deploy](docs/deployment.md#integração-com-o-pulseboard)). Para apontar uma instância própria para a produção, troque `PULSEBOARD_API_URL` por `https://api.henriqueverri.dev/api/v1`. Na demo pública as chaves expiram em 24 h e a API pode levar ~1 min no cold start: a outbox absorve os timeouts.
 
 ## Endpoints principais
 
@@ -285,7 +304,7 @@ Conscientemente fora do escopo deste projeto:
 - **Health não sonda o PulseBoard**: ele estar fora do ar aparece como eventos `PENDING` com `NETWORK`/`TIMEOUT`, não no health.
 - **`outbox_events` sem expurgo**: os eventos `SENT` ficam como histórico.
 - **Sem testes E2E de navegador** (Playwright) na suíte; o front é testado com MSW e o fluxo completo foi validado manualmente ([demo](docs/demo.md)).
-- **Sem deploy**: a demo é local (Docker Compose + PulseBoard local).
+- **Plano gratuito em produção**: Render Free hiberna os serviços (cold start de 1 a 2 minutos na API) e o worker só roda com a API acordada; os eventos esperam na outbox ([deploy](docs/deployment.md)).
 
 ## Estrutura de diretórios
 
@@ -311,9 +330,11 @@ pulseboard-pos/
 │   ├── integration.md                contrato, outbox, classificação, retry, idempotência, observabilidade
 │   ├── contract-checklist.md         conformidade com o contrato do PulseBoard
 │   ├── testing.md                    o que cada suíte protege
+│   ├── deployment.md                 produção: Render, Supabase, chave gerenciada
 │   ├── demo.md                       roteiro reproduzível
 │   └── demo/                         screenshots reais
 ├── docker-compose.yml                db + api + web, com healthchecks
+├── render.yaml                       Blueprint do Render (api + web)
 ├── .env.example
 └── .github/workflows/ci.yml          backend, frontend, docker (hadolint + build)
 ```

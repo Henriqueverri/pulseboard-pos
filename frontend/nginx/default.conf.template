@@ -1,4 +1,5 @@
-# Rendered by the nginx image entrypoint (envsubst): only ${POS_API_UPSTREAM} is replaced.
+# Rendered by the nginx image entrypoint (envsubst): only ${POS_API_UPSTREAM} and
+# ${NGINX_LOCAL_RESOLVERS} (read from /etc/resolv.conf) are replaced.
 server {
     listen 80;
     server_name _;
@@ -9,10 +10,18 @@ server {
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "no-referrer" always;
 
+    # The upstream is resolved per request, not once at startup: on Render it is a public
+    # *.onrender.com host whose addresses can change.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=30s ipv6=off;
+
     # Same origin for the browser: no CORS, and the JWT never goes to another host.
     location /api/ {
-        proxy_pass ${POS_API_UPSTREAM};
-        proxy_set_header Host $host;
+        set $api_upstream ${POS_API_UPSTREAM};
+        proxy_pass $api_upstream;
+        # The upstream's own host name: Render routes by Host, and HTTPS upstreams need SNI.
+        proxy_set_header Host $proxy_host;
+        proxy_ssl_server_name on;
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }

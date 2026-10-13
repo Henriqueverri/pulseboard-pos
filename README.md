@@ -23,7 +23,7 @@ O POS está em produção e entrega as vendas à demo pública do PulseBoard:
 4. No POS, entre como **admin** e estorne o pedido: no PulseBoard a mesma transação passa a "Estornado".
 5. Na tela **Integração** do POS, veja o payload enviado, o HTTP status e o `X-Request-Id` que aparece também nos logs do PulseBoard.
 
-Os serviços rodam no plano gratuito do Render e hibernam sem uso: **o primeiro acesso pode levar 1 a 2 minutos**. As contas são compartilhadas e os dados são de demonstração. Deploy e operação: [`docs/deployment.md`](docs/deployment.md).
+Os serviços rodam no plano gratuito do Render e hibernam sem uso: **o primeiro acesso pode levar 1 a 2 minutos**, e a tela de login avisa enquanto o servidor acorda. As contas são compartilhadas e os dados são de demonstração. Deploy e operação: [`docs/deployment.md`](docs/deployment.md).
 
 **Demo local:** roteiro reproduzível com screenshots reais em [`docs/demo.md`](docs/demo.md) (login → venda → pagamento → evento na integração → entrega → falha e retry).
 
@@ -182,7 +182,7 @@ docker compose up --build     # db → api (espera o db healthy) → web
 | `api` (Spring Boot) | http://localhost:8080 (Swagger em `/swagger-ui/index.html`) | `GET /actuator/health` (inclui o banco) |
 | `db` (PostgreSQL 16) | `localhost:5433` | `pg_isready` |
 
-- O `web` não espera a `api` ficar pronta: o Nginx resolve o hostname `api` a cada 30 s, não no start. Até a API subir, `/api` responde `502` e a SPA já é servida.
+- O `web` não espera a `api` ficar pronta: o Nginx resolve o hostname `api` a cada 30 s, não no start. Até a API subir, `/api` responde `503` com `code: "api_waking"`, a SPA já é servida e o login mostra "Acordando o servidor".
 - O Nginx serve o build estático com fallback de SPA, faz proxy de `/api/` para `api:8080` e mantém os headers de segurança (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`).
 - Portas do host configuráveis por `POS_WEB_PORT`, `POS_API_PORT` e `POS_DB_PORT`. Os dados ficam no volume `pos-db-data`; `docker compose down -v` apaga tudo.
 - A API no container fala com um PulseBoard no host via `host.docker.internal` (mapeado com `host-gateway`, funciona no Linux). O PulseBoard precisa escutar em `0.0.0.0`.

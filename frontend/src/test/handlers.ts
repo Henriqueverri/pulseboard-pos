@@ -102,6 +102,8 @@ function requeue(event: IntegrationEvent): void {
 
 /** A small fake of the POS API with the same auth rules as the backend. */
 export const handlers = [
+  http.get('/api/health', () => HttpResponse.json({ status: 'UP' })),
+
   http.post('/api/auth/login', async ({ request }) => {
     const { email, password } = (await request.json()) as { email: string; password: string }
     const user = Object.values(users).find((candidate) => candidate.email === email)

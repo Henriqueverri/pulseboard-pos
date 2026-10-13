@@ -24,6 +24,36 @@ server {
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # A hibernated Render Free API holds the request for up to a minute while it starts.
+        proxy_read_timeout 90s;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @api_waking;
+    }
+
+    # Lets the login page wake the API before the user submits.
+    location = /api/health {
+        set $api_upstream ${POS_API_UPSTREAM};
+        proxy_pass $api_upstream/actuator/health;
+        proxy_set_header Host $proxy_host;
+        proxy_ssl_server_name on;
+        proxy_read_timeout 90s;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = @api_waking;
+    }
+
+    # The API is unreachable (usually still starting): a ProblemDetail the client can recognise
+    # instead of the default HTML error page.
+    location @api_waking {
+        default_type application/problem+json;
+        charset utf-8;
+        charset_types application/problem+json;
+        # add_header in a location drops the server-level ones.
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Retry-After "5" always;
+        add_header Cache-Control "no-store" always;
+        return 503 '{"type":"about:blank","title":"Service Unavailable","status":503,"code":"api_waking","detail":"O servidor está iniciando. Isso pode levar até 1 minuto."}';
     }
 
     # Hashed file names: safe to cache for a long time.

@@ -30,7 +30,14 @@ export class ApiError extends Error {
   get isForbidden(): boolean {
     return this.status === 403
   }
+
+  /** The API is not answering yet: on Render Free it hibernates and takes up to a minute to start. */
+  get isWaking(): boolean {
+    return this.code === API_WAKING || this.status === 502 || this.status === 504
+  }
 }
+
+const API_WAKING = 'api_waking'
 
 let onUnauthorized: () => void = () => {}
 
@@ -89,9 +96,11 @@ async function toApiError(response: Response): Promise<ApiError> {
     problem.detail ??
     (response.status === 403
       ? 'Acesso negado.'
-      : response.status >= 500
-        ? 'Erro no servidor. Tente novamente.'
-        : 'Não foi possível concluir a operação.')
+      : response.status === 502 || response.status === 504
+        ? 'O servidor está iniciando. Tente novamente em instantes.'
+        : response.status >= 500
+          ? 'Erro no servidor. Tente novamente.'
+          : 'Não foi possível concluir a operação.')
   return new ApiError(
     response.status,
     problem.code ?? `http_${response.status}`,
@@ -104,6 +113,28 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
+}
+
+/**
+ * Runs {@code operation} again while the API is still starting, up to {@code timeoutMs}.
+ * Any other failure, or the last waking one, is thrown as is.
+ */
+export async function retryWhileWaking<T>(
+  operation: () => Promise<T>,
+  { timeoutMs = 90_000, delayMs = 3_000, onWaking }: { timeoutMs?: number; delayMs?: number; onWaking?: () => void } = {},
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (!(error instanceof ApiError && error.isWaking) || Date.now() + delayMs > deadline) {
+        throw error
+      }
+      onWaking?.()
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+    }
+  }
 }
 
 /** Query string from an object, skipping empty values. */

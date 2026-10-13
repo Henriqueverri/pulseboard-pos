@@ -1,5 +1,5 @@
-import { screen } from '@testing-library/react'
-import { http } from 'msw'
+import { screen, waitFor } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { PASSWORD, users } from '../test/db'
 import { problem } from '../test/handlers'
@@ -78,5 +78,50 @@ describe('authentication', () => {
     expect(await screen.findByRole('button', { name: 'Entrar' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
     expect(sessionStorage.getItem('pos.session')).toBeNull()
+  })
+})
+
+describe('login while the API is hibernated', () => {
+  it('wakes the API when the login opens and explains the wait', async () => {
+    server.use(http.get('/api/health', () => problem(503, 'api_waking', 'O servidor está iniciando.')))
+    renderApp('/login')
+
+    expect(await screen.findByText('Acordando o servidor')).toBeInTheDocument()
+  })
+
+  it('shows no notice when the API is already up', async () => {
+    let pinged = false
+    server.use(
+      http.get('/api/health', () => {
+        pinged = true
+        return HttpResponse.json({ status: 'UP' })
+      }),
+    )
+    renderApp('/login')
+
+    await waitFor(() => expect(pinged).toBe(true))
+    expect(await screen.findByRole('button', { name: 'Entrar' })).toBeInTheDocument()
+    expect(screen.queryByText('Acordando o servidor')).not.toBeInTheDocument()
+  })
+
+  it('retries the login by itself until the API answers', { timeout: 15_000 }, async () => {
+    let attempts = 0
+    server.use(
+      http.post('/api/auth/login', () => {
+        attempts += 1
+        return problem(503, 'api_waking', 'O servidor está iniciando.')
+      }, { once: true }),
+    )
+    const { router, user } = renderApp('/orders')
+
+    await user.type(await screen.findByLabelText('E-mail'), users.CASHIER.email)
+    await user.type(screen.getByLabelText('Senha'), PASSWORD)
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(await screen.findByText('Acordando o servidor')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Pedidos' }, { timeout: 10_000 })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/orders')
+    expect(attempts).toBe(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

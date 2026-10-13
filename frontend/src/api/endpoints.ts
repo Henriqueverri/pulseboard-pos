@@ -43,6 +43,11 @@ export const authApi = {
     api.post<LoginResponse>('/auth/login', { email, password }),
 }
 
+export const systemApi = {
+  /** Proxied by Nginx to the API's /actuator/health; also wakes a hibernated API. */
+  health: () => api.get<{ status: string }>('/health'),
+}
+
 export const productsApi = {
   list: (filters: ProductFilters) => api.get<Page<Product>>(`/products${query({ ...filters })}`),
   create: (input: ProductInput) => api.post<Product>('/products', input),

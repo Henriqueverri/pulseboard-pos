@@ -4,7 +4,7 @@ import { loadSession } from '../features/auth/session'
 import { problem } from '../test/handlers'
 import { signIn } from '../test/renderApp'
 import { server } from '../test/server'
-import { api, ApiError, setUnauthorizedHandler } from './client'
+import { api, ApiError, retryWhileWaking, setUnauthorizedHandler } from './client'
 
 afterEach(() => setUnauthorizedHandler(() => {}))
 
@@ -56,13 +56,34 @@ describe('api client', () => {
   })
 
   it('falls back to a generic message when the body is not a ProblemDetail', async () => {
-    server.use(http.get('/api/ping', () => new HttpResponse('<html>bad gateway</html>', { status: 502 })))
+    server.use(http.get('/api/ping', () => new HttpResponse('<html>internal error</html>', { status: 500 })))
 
-    await expect(api.get('/ping')).rejects.toMatchObject({
-      status: 502,
-      code: 'http_502',
-      message: 'Erro no servidor. Tente novamente.',
+    const error = await api.get('/ping').catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({ status: 500, code: 'http_500', message: 'Erro no servidor. Tente novamente.' })
+    expect((error as ApiError).isWaking).toBe(false)
+  })
+
+  it.each([502, 504])('treats a proxy %i error page as the API still starting', async (status) => {
+    server.use(http.get('/api/ping', () => new HttpResponse('<html>bad gateway</html>', { status })))
+
+    const error = await api.get('/ping').catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({
+      status,
+      code: `http_${status}`,
+      message: 'O servidor está iniciando. Tente novamente em instantes.',
     })
+    expect((error as ApiError).isWaking).toBe(true)
+  })
+
+  it('recognises the api_waking ProblemDetail that Nginx returns while the API starts', async () => {
+    server.use(http.get('/api/ping', () => problem(503, 'api_waking', 'O servidor está iniciando.')))
+
+    const error = await api.get('/ping').catch((failure: unknown) => failure)
+
+    expect(error).toMatchObject({ status: 503, code: 'api_waking', message: 'O servidor está iniciando.' })
+    expect((error as ApiError).isWaking).toBe(true)
   })
 
   it('clears the session and notifies the app on 401', async () => {
@@ -94,5 +115,35 @@ describe('api client', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).isNetworkError).toBe(true)
+  })
+})
+
+describe('retryWhileWaking', () => {
+  const waking = () => new ApiError(503, 'api_waking', 'O servidor está iniciando.')
+
+  it('tries again while the API is starting and returns the first success', async () => {
+    const operation = vi.fn().mockRejectedValueOnce(waking()).mockRejectedValueOnce(waking()).mockResolvedValue('ok')
+    const onWaking = vi.fn()
+
+    await expect(retryWhileWaking(operation, { delayMs: 1, onWaking })).resolves.toBe('ok')
+    expect(operation).toHaveBeenCalledTimes(3)
+    expect(onWaking).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry other failures', async () => {
+    const failure = new ApiError(401, 'invalid_credentials', 'E-mail ou senha inválidos.')
+    const operation = vi.fn().mockRejectedValue(failure)
+
+    await expect(retryWhileWaking(operation, { delayMs: 1 })).rejects.toBe(failure)
+    expect(operation).toHaveBeenCalledOnce()
+  })
+
+  it('gives up with the waking error once the time is over', async () => {
+    const operation = vi.fn().mockRejectedValue(waking())
+
+    await expect(retryWhileWaking(operation, { timeoutMs: 30, delayMs: 10 })).rejects.toMatchObject({
+      code: 'api_waking',
+    })
+    expect(operation.mock.calls.length).toBeGreaterThan(1)
   })
 })

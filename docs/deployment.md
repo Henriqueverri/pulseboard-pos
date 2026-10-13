@@ -27,7 +27,10 @@ No plano Free os serviços não se alcançam pela rede privada, então o Nginx f
 
 ## Hibernação
 
-O Render Free hiberna cada serviço após ~15 min sem requisições. O primeiro acesso acorda a Web na hora e a API em 1 a 2 minutos (JVM com uma fração de CPU); até lá, `/api` responde 502 e a tela de login mostra o erro. Abra o POS alguns minutos antes de uma apresentação.
+O Render Free hiberna cada serviço após ~15 min sem requisições. O primeiro acesso acorda a Web na hora e a API em 1 a 2 minutos (JVM com uma fração de CPU). Enquanto isso:
+
+- O Nginx espera a API por até 90 s e, se ela não responder (502, 503 ou 504), devolve um ProblemDetail `503` com `code: "api_waking"` e `Retry-After: 5`, em vez da página de erro em HTML.
+- A tela de login chama `GET /api/health` (encaminhado para `/actuator/health`) assim que abre, para a API acordar enquanto a pessoa digita, e mostra "Acordando o servidor" com os segundos passando. O login e as consultas tentam de novo sozinhos por cerca de 90 s.
 
 Enquanto a API dorme, o worker também dorme: nada se perde, porque os eventos estão na outbox e são entregues quando ela acorda. Do lado do PulseBoard, a API também pode estar hibernando; a primeira entrega espera o cold start dele ou cai no retry com backoff.
 

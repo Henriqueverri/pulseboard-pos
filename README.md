@@ -109,6 +109,7 @@ Cada produto pode controlar estoque (`trackStock`) e ter um estoque mínimo (`st
 - **Sem saldo**, o pagamento responde `409 insufficient_stock` com os SKUs e o saldo restante em `errors`. A transação inteira é desfeita: o pedido continua `PENDING`, nenhuma outra linha fica baixada e nada vai para a outbox.
 - **Concorrência sem lock em Java:** um único `UPDATE ... WHERE stock_quantity + :delta >= 0 RETURNING stock_quantity`. O PostgreSQL trava a linha e reavalia a condição para quem chega depois, então duas vendas nunca levam a mesma última unidade. As linhas são travadas em ordem de `product_id`, o que evita deadlock entre pedidos com os mesmos produtos.
 - **O saldo só muda por movimentação** (`SALE`, `REFUND`, `RECEIPT`, `ADJUSTMENT`), cada uma com o saldo resultante, o pedido, o motivo e o usuário. Entradas e ajustes são feitos pelo ADMIN; o ajuste exige motivo e nunca deixa o saldo negativo.
+- **Espelhado no PulseBoard:** toda mudança de saldo (e ligar, desligar ou mudar o mínimo) grava, na mesma transação, um evento `STOCK_CHANGED` com o saldo absoluto, entregue como `PUT /ingest/products/{sku}/stock`. O PulseBoard fica com o saldo mais recente e mostra o card de estoque com os dias de cobertura (ver [integração](docs/integration.md#payload-stock_changed)).
 - **Telas:** coluna de estoque com selos "Baixo" e "Zerado" e filtro de estoque baixo em Produtos, diálogo com entrada, ajuste e histórico, saldo na busca do caixa (produtos zerados ficam desabilitados) e, se o pagamento for recusado por saldo, a lista dos produtos sem saldo com o carrinho preservado.
 
 ## Integração com o PulseBoard
@@ -125,13 +126,13 @@ Resumo abaixo. O documento completo, com payloads, estados, troubleshooting e ex
 
 Várias instâncias podem rodar ao mesmo tempo sem enviar o mesmo evento em paralelo. Se o processo morre no meio, o evento volta a ser elegível quando o lease expira.
 
-**Ordenação por pedido.** Um evento só é reivindicado quando todos os eventos anteriores do mesmo pedido estão `SENT`: o estorno nunca chega antes da venda. Enquanto a venda falha, o estorno aparece como "bloqueado por #N".
+**Ordenação por pedido.** Um evento só é reivindicado quando todos os eventos anteriores do mesmo pedido estão `SENT`: o estorno nunca chega antes da venda. Enquanto a venda falha, o estorno aparece como "bloqueado por #N". Os eventos de estoque não esperam: cada um leva o saldo absoluto e o instante, e o PulseBoard fica com o mais recente.
 
 **Classificação das respostas:**
 
 | Resposta | Resultado |
 |---|---|
-| `201`, ou `200` com `Idempotent-Replayed: true` | `SENT` |
+| `201`, `200` (estoque), ou `200` com `Idempotent-Replayed: true` | `SENT` |
 | timeout, falha de rede, `5xx` | `PENDING` com backoff |
 | `429` | `PENDING` até `Retry-After` (60 s se ausente) |
 | `401` | `FAILED` / `CONFIGURATION` e **pausa** da integração por 15 min |
@@ -217,8 +218,8 @@ Sem `POS_JWT_SECRET` com pelo menos 32 bytes a API **não sobe** (falha explíci
 ## Testes
 
 ```bash
-cd backend && ./mvnw -B spotless:check verify      # 221 testes (Testcontainers: precisa do Docker)
-cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build   # 108 testes
+cd backend && ./mvnw -B spotless:check verify      # 230 testes (Testcontainers: precisa do Docker)
+cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build   # 109 testes
 ```
 
 O que cada suíte protege está em [`docs/testing.md`](docs/testing.md). Destaques: concorrência real no PostgreSQL (dois workers, `SKIP LOCKED`, lease expirado; dois pagamentos disputando a última unidade), replay idempotente após resultado perdido e após timeout, toda a tabela de classificação, pausa por 401 sem loop, reconciliação, atomicidade pedido + evento, e a API Key ausente de logs e do health.
@@ -308,7 +309,7 @@ Documentação interativa: Swagger UI em `/swagger-ui/index.html` (OpenAPI em `/
 Conscientemente fora do escopo deste projeto:
 
 - **Pagamento simulado** (Dinheiro, Cartão, Pix são só rótulos); sem gateway, sem desconto/frete, uma moeda por instalação, sem multiempresa.
-- **Estoque sem ficha técnica:** produtos compostos (drinks, porções) não baixam insumos; o saldo ainda não é enviado ao PulseBoard.
+- **Estoque sem ficha técnica:** produtos compostos (drinks, porções) não baixam insumos. O PulseBoard só recebe o saldo, não o histórico de movimentações.
 - **Sem cadastro de usuários** nem refresh token; o token no `sessionStorage` é um trade-off documentado.
 - **Sem métricas Prometheus, OpenTelemetry/tracing, Grafana, alertas** e sem dead letter separada (`FAILED` fica na própria tabela, visível e reprocessável).
 - **Sem disparo imediato pós-commit**: a latência de entrega é a do polling (2 s).
@@ -354,7 +355,7 @@ pulseboard-pos/
 └── .github/workflows/ci.yml          backend, frontend, docker (hadolint + build)
 ```
 
-**Migrations** (`backend/src/main/resources/db/migration`): `V1` baseline vazio, `V2` produtos e clientes, `V3` pedidos, `V4` seed do catálogo (40 SKUs), `V5` usuários, `V6` `outbox_events`, `V7` retry (`next_attempt_at`, `failure_kind`, `attempts_at_retry`, índice de claim), `V8` estoque (`track_stock`, `stock_quantity`, `stock_min` em `products` e a tabela `stock_movements`).
+**Migrations** (`backend/src/main/resources/db/migration`): `V1` baseline vazio, `V2` produtos e clientes, `V3` pedidos, `V4` seed do catálogo (40 SKUs), `V5` usuários, `V6` `outbox_events`, `V7` retry (`next_attempt_at`, `failure_kind`, `attempts_at_retry`, índice de claim), `V8` estoque (`track_stock`, `stock_quantity`, `stock_min` em `products` e a tabela `stock_movements`), `V9` eventos `STOCK_CHANGED` na outbox (agregado `PRODUCT`).
 
 ## Licença
 

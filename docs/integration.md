@@ -1,6 +1,6 @@
 # Integração POS → PulseBoard
 
-Como uma venda do POS chega ao PulseBoard: contrato, Transactional Outbox, worker, classificação das respostas, retry, idempotência, reconciliação, reprocessamento e observabilidade. Visão geral e quickstart no [README](../README.md); checklist de conformidade com o contrato em [`contract-checklist.md`](contract-checklist.md).
+Como uma venda e o saldo de estoque do POS chegam ao PulseBoard: contrato, Transactional Outbox, worker, classificação das respostas, retry, idempotência, reconciliação, reprocessamento e observabilidade. Visão geral e quickstart no [README](../README.md); checklist de conformidade com o contrato em [`contract-checklist.md`](contract-checklist.md).
 
 O POS usa **apenas** o contrato público de ingestão do PulseBoard (`docs/integration.md` do repositório `pulseboard`), autenticado por uma API Key da organização. Nada no PulseBoard foi criado ou alterado para o POS.
 
@@ -8,6 +8,8 @@ O POS usa **apenas** o contrato público de ingestão do PulseBoard (`docs/integ
 OrderService.pay() / refund()
   └── @Transactional ─┬── UPDATE orders (status, paid_at / refunded_at)
                       └── INSERT outbox_events (ORDER_PAID / ORDER_REFUNDED, payload snapshot)
+InventoryService (venda, estorno, entrada, ajuste) / ProductService (config. de estoque)
+  └── mesma transação ── INSERT outbox_events (STOCK_CHANGED, saldo absoluto)
                                    │ commit
                                    ▼
                      OutboxWorker (@Scheduled, a cada 2 s)
@@ -42,6 +44,10 @@ sequenceDiagram
 | `PAID → REFUNDED` | `ORDER_REFUNDED` | `POST /ingest/transactions/{external_id}/status-changes` |
 | `PENDING → CANCELED` | — | nenhuma: um pedido nunca pago não é venda para o PulseBoard |
 
+| Mudança no estoque de um produto | Evento | Requisição |
+|---|---|---|
+| venda, estorno, entrada ou ajuste de um produto controlado; controle de estoque ligado ou desligado; mínimo ou SKU alterados com controle ligado | `STOCK_CHANGED` | `PUT /ingest/products/{sku}/stock` |
+
 ### Payload `ORDER_PAID`
 
 ```json
@@ -71,9 +77,23 @@ sequenceDiagram
 { "status": "refunded", "occurred_at": "2026-10-06T22:03:40Z" }
 ```
 
+### Payload `STOCK_CHANGED`
+
+`PUT /ingest/products/PB-001-ESS/stock`
+
+```json
+{ "sku": "PB-001-ESS", "tracked": true, "quantity": 7, "min_quantity": 2, "occurred_at": "2026-10-13T22:10:41.123456Z" }
+```
+
+- **Saldo absoluto**, nunca a variação: o PulseBoard espelha o número e fica com o de `occurred_at` mais recente. Um saldo mais antigo (ou do mesmo instante) que chega depois recebe `200` com `Idempotent-Replayed: true` e não muda nada.
+- **`occurred_at` com microssegundos**, lido depois do lock da linha do produto (o `UPDATE` condicional do saldo, ou o `UPDATE` do cadastro). O lock vai até o commit, então a mudança seguinte do mesmo produto sempre tem um instante maior. Um pedido com o mesmo produto em duas linhas gera um evento só, com o saldo final.
+- **`sku`** está no snapshot porque é ele que monta a URL; o PulseBoard ignora o campo no corpo. Se o SKU do produto mudar, os eventos seguintes vão para o SKU novo.
+- Desligar o controle envia `tracked: false`; o PulseBoard para de mostrar o produto no card de estoque.
+- Venda recusada por falta de saldo não grava nada: o rollback leva o movimento e o evento juntos.
+
 - **`external_id`**: `pos:<uuid do pedido>` (venda) e `pos:cus:<uuid do cliente>` (cliente). O prefixo identifica a origem e evita colisão com outros sistemas da mesma organização. O `:` é válido no segmento de path; o client usa URI template sem reescapar e há teste da URL final.
 - **Dinheiro** sempre como string decimal com duas casas (`"79.90"`), nunca número JSON.
-- **Datas** em UTC com `Z`, truncadas para segundos (`paid_at` / `refunded_at`).
+- **Datas** em UTC com `Z`, truncadas para segundos (`paid_at` / `refunded_at`); no estoque, com microssegundos.
 - **Não saem do POS:** `document` do cliente, forma de pagamento e o número legível do pedido.
 - O corpo é montado por `IngestPayloadFactory` **no momento do evento** e gravado como snapshot (`jsonb`) em `outbox_events.payload`. Todo retry reenvia exatamente esse corpo.
 
@@ -101,6 +121,7 @@ A cada `POS_OUTBOX_POLL_INTERVAL` (padrão 2 s) o `OutboxWorker`:
 - **Lease (2 min)**: maior que conexão + leitura. Se o processo morre depois do claim, o evento volta a ser elegível quando o lease expira. Se morreu **depois** de o PulseBoard gravar, o reenvio recebe `200` replay e vira `SENT`.
 - **Fencing por `attempts`**: `attempts` já conta a tentativa atual e funciona como token. Um worker atrasado, cujo lease expirou e foi re-reivindicado, não consegue gravar o resultado: o `UPDATE` não encontra a linha e o resultado é descartado (com log `outcome=discarded`).
 - **Ordenação por pedido**: o claim só pega um evento se nenhum evento anterior do mesmo pedido (menor `sequence`) estiver fora de `SENT` (`NOT EXISTS`). O estorno nunca chega antes da venda. Enquanto a venda está falhando, o estorno aparece na UI como "bloqueado por #N", e o worker registra `outcome=blocking` com `blocked_events` quando uma falha definitiva segura eventos posteriores. Pedidos diferentes não se bloqueiam.
+- **Estoque não espera**: eventos `STOCK_CHANGED` (agregado `PRODUCT`) ficam fora do `NOT EXISTS`. Cada um leva o saldo absoluto e o instante, e o PulseBoard fica com o mais recente; um saldo que falhou não pode segurar os que o substituem. Nunca aparecem como "bloqueado por" nem geram `outcome=blocking`.
 
 ## Estados
 
@@ -124,7 +145,8 @@ Implementada em `IngestResponseClassifier`, seguindo a tabela de erros do contra
 | Resposta | Classe | O que acontece |
 |---|---|---|
 | `201 Created` | sucesso | `SENT`, `processed_at`, `remote_id` (`data.id`) |
-| `200` + `Idempotent-Replayed: true` | sucesso | `SENT` (replay idempotente: a venda já existia) |
+| `200` + `Idempotent-Replayed: true` | sucesso | `SENT` (replay idempotente: a venda já existia; no estoque, o PulseBoard já tinha um saldo igual ou mais novo) |
+| `200` no estoque | sucesso | `SENT` (saldo aplicado) |
 | `429 rate_limited` | transitório | `PENDING`, `next_attempt_at = now + Retry-After` (segundos ou data HTTP; 60 s se ausente) |
 | `5xx` | transitório | `PENDING` com backoff, `last_error_code = HTTP_5XX` |
 | timeout | transitório | `PENDING` com backoff, `TIMEOUT` (resultado desconhecido: o replay resolve) |
@@ -134,6 +156,7 @@ Implementada em `IngestResponseClassifier`, seguindo a tabela de erros do contra
 | `409 customer_email_conflict` | permanente | `FAILED` / `PERMANENT`, com a instrução de vincular o cliente pelo ID externo no PulseBoard e reprocessar |
 | `409 transaction_conflict` | permanente | `FAILED` / `PERMANENT`: payload divergente para o mesmo `external_id` (bug ou ID repetido) |
 | `422` (`validation_failed`, `currency_mismatch`, `total_mismatch`) | permanente | `FAILED` / `PERMANENT`, com `code`, `message` e erros por campo (ex.: `items.0.sku`) |
+| `422` com erro em `sku` num `STOCK_CHANGED` | permanente | `FAILED` / `PERMANENT`, com a instrução de cadastrar o produto com o mesmo SKU no PulseBoard; o próximo movimento já atualiza o saldo |
 | `404`, `413` e qualquer outro `4xx` | permanente | `FAILED` / `PERMANENT` (`code` do corpo, ou `HTTP_<status>`) |
 
 Mensagens de erro gravadas em `last_error` ficam limitadas a 500 caracteres e nunca contêm headers da requisição.
@@ -164,6 +187,7 @@ A entrega é **at-least-once**: um evento pode ser enviado mais de uma vez (time
 - O PulseBoard compara um *fingerprint* do conteúdo (instante, moeda, status inicial, cliente e itens). Como o payload é um snapshot imutável, **todo reenvio é idêntico** e recebe `200` com `Idempotent-Replayed: true`, tratado como sucesso.
 - Qualquer divergência vira `409 transaction_conflict`, tratado como falha permanente (sinal de bug, nunca uma segunda venda).
 - No estorno, reenviar uma mudança de status já aplicada recebe `200` replay.
+- No estoque, a idempotência vem do instante: reenviar um saldo já aplicado (ou mais antigo que o atual) recebe `200` replay e não muda nada.
 
 Testes que provam isso: `OutboxDeliveryTest.aRedeliveryAfterALostResultIsAnIdempotentReplay` e `aTimeoutThenAReplayIsSentOnce` (WireMock).
 
@@ -200,10 +224,11 @@ O console usa o formato estruturado nativo do Spring Boot 3.5 (`logging.structur
 |---|---|
 | `request_id` | MDC. Numa requisição HTTP: o `X-Request-Id` recebido ou gerado. No worker: `pos-<event id>` |
 | `event_id` | MDC do worker; campo do log `enqueued` |
-| `order_id`, `external_id`, `event_type`, `attempt` | logs do worker |
+| `order_id`, `external_id`, `event_type`, `attempt` | logs do worker (eventos de pedido) |
+| `product_id`, `sku` | logs do worker e `enqueued` dos eventos de estoque, no lugar de `order_id` / `external_id` |
 | `outcome` | `enqueued`, `claimed`, `reconciling`, `reconciled`, `sent`, `retry_scheduled`, `failed`, `blocking`, `released`, `discarded`, `error`, `integration_paused`, `integration_resumed`, `manual_retry` |
 | `http_status`, `error_code`, `failure_kind`, `next_attempt_at`, `replayed`, `recorded` | resultado classificado e se foi persistido (`recorded=false` = claim perdido) |
-| `target`, `operation`, `duration_ms`, `response_request_id`, `error_type` | uma linha por chamada do `PulseBoardClient` (`create_transaction`, `change_status`, `get_transaction`) |
+| `target`, `operation`, `duration_ms`, `response_request_id`, `error_type` | uma linha por chamada do `PulseBoardClient` (`create_transaction`, `change_status`, `get_transaction`, `put_stock`) |
 
 Uma tentativa real, capturada no ambiente Docker (campos de infraestrutura omitidos):
 
@@ -263,6 +288,7 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/actuator/health | jq .c
 
 | Sintoma | Causa provável | O que fazer |
 |---|---|---|
+| `STOCK_CHANGED` `FAILED` com `sku: The selected product SKU is invalid.` | produto controlado no POS sem o mesmo SKU no PulseBoard | Cadastrar o produto no PulseBoard; o próximo movimento atualiza o saldo (ou reprocessar o evento) |
 | Evento `FAILED` / `PERMANENT` com `items.0.sku` | SKU do POS inexistente no catálogo da organização | Cadastrar o SKU no PulseBoard (a organização de demo já tem os 40) e reprocessar |
 | `409 customer_email_conflict` | o e-mail já pertence a outro cliente no PulseBoard | Preencher o "ID externo" desse cliente no PulseBoard com `pos:cus:<uuid>` e reprocessar |
 | `422 currency_mismatch` | `POS_CURRENCY` diferente da moeda da organização | Ajustar `POS_CURRENCY` (pedidos novos); eventos antigos mantêm o snapshot |

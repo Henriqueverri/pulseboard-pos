@@ -40,13 +40,19 @@ export function EventDetailDrawer({ eventId, onClose }: { eventId: string | null
             <div className="flex flex-wrap items-center gap-2">
               <IntegrationStatusBadge status={data.status} failureKind={data.failureKind} />
               <Tag tone="brand">{EVENT_TYPE_LABELS[data.eventType]}</Tag>
-              <Link
-                className="ml-auto inline-flex items-center gap-1 text-brand-600 hover:underline"
-                to={`/orders/${data.orderId}`}
-              >
-                Pedido #{data.orderNumber ?? '—'}
-                <ArrowSquareOutIcon size={14} aria-hidden="true" />
-              </Link>
+              {data.orderId ? (
+                <Link
+                  className="ml-auto inline-flex items-center gap-1 text-brand-600 hover:underline"
+                  to={`/orders/${data.orderId}`}
+                >
+                  Pedido #{data.orderNumber ?? '—'}
+                  <ArrowSquareOutIcon size={14} aria-hidden="true" />
+                </Link>
+              ) : (
+                <span className="ml-auto text-ink/80">
+                  {data.productName ?? 'Produto removido'} · <span className="font-mono">{data.productSku}</span>
+                </span>
+              )}
             </div>
 
             {data.blockedBy !== null && (
@@ -67,7 +73,7 @@ export function EventDetailDrawer({ eventId, onClose }: { eventId: string | null
 
             <Section title="Rastreamento">
               <dl className="grid gap-y-3">
-                <Field label="ID externo" value={data.externalId} mono />
+                <Field label={data.orderId ? 'ID externo' : 'SKU no PulseBoard'} value={data.externalId} mono />
                 <Field label="X-Request-Id enviado" value={data.requestId} mono />
                 <Field label="X-Request-Id da resposta" value={data.lastRequestId ?? '—'} mono />
                 <Field label="ID no PulseBoard" value={data.remoteId ?? '—'} mono />

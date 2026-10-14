@@ -23,7 +23,7 @@ export function EventsTable({
     <Table caption="Eventos de integração">
       <THead>
         <Th>Evento</Th>
-        <Th>Pedido</Th>
+        <Th>Origem</Th>
         <Th>Tipo</Th>
         <Th>Status</Th>
         <Th className="text-right">Tentativas</Th>
@@ -39,9 +39,16 @@ export function EventsTable({
             <Tr key={event.id}>
               <Td className="text-ink/65 tabular">#{event.sequence}</Td>
               <Td>
-                <Link className="font-medium text-brand-600 hover:underline" to={`/orders/${event.orderId}`}>
-                  #{event.orderNumber ?? '—'}
-                </Link>
+                {event.orderId ? (
+                  <Link className="font-medium text-brand-600 hover:underline" to={`/orders/${event.orderId}`}>
+                    Pedido #{event.orderNumber ?? '—'}
+                  </Link>
+                ) : (
+                  <span className="whitespace-nowrap">
+                    {event.productName ?? 'Produto removido'}{' '}
+                    <span className="font-mono text-xs text-ink/65">{event.productSku}</span>
+                  </span>
+                )}
               </Td>
               <Td>{EVENT_TYPE_LABELS[event.eventType]}</Td>
               <Td>

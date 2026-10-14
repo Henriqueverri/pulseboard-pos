@@ -2,6 +2,7 @@ package dev.henriqueverri.pos.catalog;
 
 import dev.henriqueverri.pos.catalog.dto.ProductRequest;
 import dev.henriqueverri.pos.catalog.dto.ProductResponse;
+import dev.henriqueverri.pos.inventory.InventoryService;
 import dev.henriqueverri.pos.shared.PageResponse;
 import dev.henriqueverri.pos.shared.Search;
 import dev.henriqueverri.pos.shared.error.ApiException;
@@ -24,10 +25,12 @@ public class ProductService {
   private static final Sort SORT = Sort.by("sku");
 
   private final ProductRepository products;
+  private final InventoryService inventory;
   private final Clock clock;
 
-  public ProductService(ProductRepository products, Clock clock) {
+  public ProductService(ProductRepository products, InventoryService inventory, Clock clock) {
     this.products = products;
+    this.inventory = inventory;
     this.clock = clock;
   }
 
@@ -74,7 +77,11 @@ public class ProductService {
     product.configureStock(
         Boolean.TRUE.equals(request.trackStock()),
         request.stockMin() == null ? 0 : request.stockMin());
-    return ProductResponse.from(saveUnique(product, sku));
+    Product saved = saveUnique(product, sku);
+    if (saved.isTrackStock()) {
+      inventory.stockSettingsChanged(saved.getId());
+    }
+    return ProductResponse.from(saved);
   }
 
   @Transactional
@@ -84,11 +91,22 @@ public class ProductService {
     if (products.existsBySkuAndIdNot(sku, id)) {
       throw duplicateSku(sku);
     }
+    boolean wasTracked = product.isTrackStock();
+    int previousMin = product.getStockMin();
+    String previousSku = product.getSku();
     product.update(sku, request.name().trim(), request.price(), request.active(), clock.instant());
     product.configureStock(
         request.trackStock() == null ? product.isTrackStock() : request.trackStock(),
         request.stockMin() == null ? product.getStockMin() : request.stockMin());
-    return ProductResponse.from(saveUnique(product, sku));
+    Product saved = saveUnique(product, sku);
+    boolean stockChanged =
+        saved.isTrackStock() != wasTracked
+            || saved.isTrackStock()
+                && (saved.getStockMin() != previousMin || !saved.getSku().equals(previousSku));
+    if (stockChanged) {
+      inventory.stockSettingsChanged(saved.getId());
+    }
+    return ProductResponse.from(saved);
   }
 
   private Product find(UUID id) {

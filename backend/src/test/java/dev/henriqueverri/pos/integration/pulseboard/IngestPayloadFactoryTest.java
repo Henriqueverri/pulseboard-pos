@@ -51,6 +51,18 @@ class IngestPayloadFactoryTest {
   }
 
   @Test
+  void stockChangedIsTheAbsoluteBalanceWithMicroseconds() {
+    Instant at = Instant.parse("2026-10-13T22:10:41.123456789Z");
+
+    assertThat(factory.stockChanged("PB-001-ESS", true, 7, 2, at))
+        .isEqualTo(
+            "{\"sku\":\"PB-001-ESS\",\"tracked\":true,\"quantity\":7,\"min_quantity\":2,"
+                + "\"occurred_at\":\"2026-10-13T22:10:41.123456Z\"}");
+    assertThat(IngestPayloadFactory.stockSku(factory.stockChanged("BAR-HEI", false, 0, 0, at)))
+        .isEqualTo("BAR-HEI");
+  }
+
+  @Test
   void keepsWholeUnitsWithTwoDecimals() {
     Order order =
         Order.place(

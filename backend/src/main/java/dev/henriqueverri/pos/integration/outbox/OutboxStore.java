@@ -20,8 +20,10 @@ public class OutboxStore {
   /**
    * Section 8.4 of the plan. {@code FOR UPDATE SKIP LOCKED}: concurrent claims (two instances, or
    * overlapping runs) never get the same row. An event whose lease expired (worker died
-   * mid-delivery) is claimable again. {@code NOT EXISTS} keeps the order of each sale: an event is
-   * only eligible once every earlier event of the same order is {@code SENT}.
+   * mid-delivery) is claimable again. {@code NOT EXISTS} keeps the order of each sale: an order
+   * event is only eligible once every earlier event of the same order is {@code SENT}. Stock events
+   * skip it: each carries the absolute balance and its instant, PulseBoard keeps the newest, so a
+   * failed one must not hold back the balances that replace it.
    */
   private static final String CLAIM =
       """
@@ -36,11 +38,11 @@ public class OutboxStore {
         FROM outbox_events c
         WHERE ((c.status = 'PENDING' AND c.next_attempt_at <= :now)
             OR (c.status = 'PROCESSING' AND c.locked_until < :now))
-          AND NOT EXISTS (
+          AND (c.aggregate_type <> 'ORDER' OR NOT EXISTS (
             SELECT 1 FROM outbox_events p
             WHERE p.aggregate_id = c.aggregate_id
               AND p.sequence < c.sequence
-              AND p.status <> 'SENT')
+              AND p.status <> 'SENT'))
         ORDER BY c.sequence
         LIMIT :batchSize
         FOR UPDATE SKIP LOCKED)

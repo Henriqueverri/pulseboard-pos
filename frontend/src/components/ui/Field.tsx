@@ -116,6 +116,29 @@ export function SelectField({
   )
 }
 
+/** On/off checkbox shown as a switch, with its label and a short explanation. */
+export function SwitchField({
+  label,
+  description,
+  ...props
+}: { label: string; description: ReactNode } & Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+    ref?: Ref<HTMLInputElement>
+  }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-ink/10 px-3 py-2.5">
+      <span>
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-ink/65">{description}</span>
+      </span>
+      <input type="checkbox" role="switch" className="peer sr-only" {...props} />
+      <span
+        className="relative h-5 w-9 shrink-0 rounded-full bg-ink/15 transition-colors peer-checked:bg-brand-600 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/60 after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow-soft after:transition-transform peer-checked:after:translate-x-4"
+        aria-hidden="true"
+      />
+    </label>
+  )
+}
+
 /** Search box with the magnifier icon; pass an `aria-label`. */
 export function SearchInput({
   className,

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { FailureKind, IntegrationEventStatus, OrderStatus } from '../../api/types'
+import type { FailureKind, IntegrationEventStatus, OrderStatus, Product } from '../../api/types'
 import { cn } from '../../lib/cn'
 import {
   FAILURE_KIND_LABELS,
@@ -54,6 +54,22 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   return (
     <Tag tone={orderTones[status]} dot>
       {ORDER_STATUS_LABELS[status]}
+    </Tag>
+  )
+}
+
+/** "Zerado" or "Baixo" for a product with stock control at or below its minimum; nothing otherwise. */
+export function StockBadge({ product }: { product: Pick<Product, 'lowStock' | 'stockQuantity'> }) {
+  if (!product.lowStock) {
+    return null
+  }
+  return product.stockQuantity === 0 ? (
+    <Tag tone="danger" size="sm">
+      Zerado
+    </Tag>
+  ) : (
+    <Tag tone="warning" size="sm">
+      Baixo
     </Tag>
   )
 }

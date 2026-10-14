@@ -1,12 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { productsApi } from '../../api/endpoints'
 import type { Product } from '../../api/types'
 import { ErrorAlert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
-import { TextField } from '../../components/ui/Field'
+import { SwitchField, TextField } from '../../components/ui/Field'
 import { applyServerErrors } from '../../lib/formErrors'
 import { productSchema, type ProductPayload } from './schema'
 
@@ -25,6 +25,7 @@ export function ProductForm({
     register,
     handleSubmit,
     setError,
+    control,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(productSchema),
@@ -33,8 +34,11 @@ export function ProductForm({
       name: product?.name ?? '',
       price: product?.price.replace('.', ',') ?? '',
       active: product?.active ?? true,
+      trackStock: product?.trackStock ?? false,
+      stockMin: String(product?.stockMin ?? 0),
     },
   })
+  const trackStock = useWatch({ control, name: 'trackStock' })
 
   const save = useMutation({
     mutationFn: (payload: ProductPayload) =>
@@ -44,9 +48,12 @@ export function ProductForm({
       onSaved(saved)
     },
     onError: (error) => {
-      const mapped = applyServerErrors(error, setError, ['sku', 'name', 'price', 'active'], {
-        duplicate_sku: 'sku',
-      })
+      const mapped = applyServerErrors(
+        error,
+        setError,
+        ['sku', 'name', 'price', 'active', 'trackStock', 'stockMin'],
+        { duplicate_sku: 'sku' },
+      )
       setGeneralError(mapped ? null : error)
     },
   })
@@ -70,17 +77,25 @@ export function ProductForm({
         error={errors.price?.message}
         {...register('price')}
       />
-      <label className="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-ink/10 px-3 py-2.5">
-        <span>
-          <span className="block text-sm font-medium">Ativo</span>
-          <span className="block text-xs text-ink/65">Só produtos ativos aparecem no caixa.</span>
-        </span>
-        <input type="checkbox" role="switch" className="peer sr-only" {...register('active')} />
-        <span
-          className="relative h-5 w-9 shrink-0 rounded-full bg-ink/15 transition-colors peer-checked:bg-brand-600 peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/60 after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow-soft after:transition-transform peer-checked:after:translate-x-4"
-          aria-hidden="true"
+      <SwitchField
+        label="Ativo"
+        description="Só produtos ativos aparecem no caixa."
+        {...register('active')}
+      />
+      <SwitchField
+        label="Controlar estoque"
+        description="A venda baixa o saldo e não é concluída sem unidades disponíveis."
+        {...register('trackStock')}
+      />
+      {trackStock && (
+        <TextField
+          label="Estoque mínimo"
+          inputMode="numeric"
+          hint="Com o saldo neste valor ou abaixo, o produto aparece como estoque baixo."
+          error={errors.stockMin?.message}
+          {...register('stockMin')}
         />
-      </label>
+      )}
       <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
         <Button variant="outline" onClick={onCancel}>
           Cancelar

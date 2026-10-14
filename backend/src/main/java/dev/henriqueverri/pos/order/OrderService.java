@@ -8,6 +8,7 @@ import dev.henriqueverri.pos.integration.IntegrationService;
 import dev.henriqueverri.pos.integration.outbox.OutboxEventType;
 import dev.henriqueverri.pos.integration.outbox.OutboxService;
 import dev.henriqueverri.pos.integration.pulseboard.IngestPayloadFactory;
+import dev.henriqueverri.pos.inventory.InventoryService;
 import dev.henriqueverri.pos.order.dto.CreateOrderRequest;
 import dev.henriqueverri.pos.order.dto.OrderItemRequest;
 import dev.henriqueverri.pos.order.dto.OrderResponse;
@@ -40,6 +41,7 @@ public class OrderService {
   private final OrderRepository orders;
   private final CustomerRepository customers;
   private final ProductRepository products;
+  private final InventoryService inventory;
   private final OutboxService outbox;
   private final IngestPayloadFactory payloads;
   private final IntegrationService integration;
@@ -50,6 +52,7 @@ public class OrderService {
       OrderRepository orders,
       CustomerRepository customers,
       ProductRepository products,
+      InventoryService inventory,
       OutboxService outbox,
       IngestPayloadFactory payloads,
       IntegrationService integration,
@@ -58,6 +61,7 @@ public class OrderService {
     this.orders = orders;
     this.customers = customers;
     this.products = products;
+    this.inventory = inventory;
     this.outbox = outbox;
     this.payloads = payloads;
     this.integration = integration;
@@ -138,11 +142,22 @@ public class OrderService {
     return OrderResponse.from(orders.save(order), List.of());
   }
 
-  /** The order change and its outbox event commit together or not at all. */
+  /**
+   * The order change, the stock it takes and its outbox event commit together or not at all: short
+   * of stock, the order stays PENDING and PulseBoard never hears of it.
+   */
   @Transactional
   public OrderResponse pay(UUID id, PaymentMethod method) {
     Order order = find(id);
     order.pay(method, clock.instant());
+    inventory.sell(
+        order.getId(),
+        order.getItems().stream()
+            .map(
+                item ->
+                    new InventoryService.Line(
+                        item.getProductId(), item.getSku(), item.getQuantity()))
+            .toList());
     outbox.enqueue(order.getId(), OutboxEventType.ORDER_PAID, payloads.orderPaid(order));
     return response(order);
   }
@@ -158,6 +173,7 @@ public class OrderService {
   public OrderResponse refund(UUID id) {
     Order order = find(id);
     order.refund(clock.instant());
+    inventory.restock(order.getId());
     outbox.enqueue(order.getId(), OutboxEventType.ORDER_REFUNDED, payloads.orderRefunded(order));
     return response(order);
   }

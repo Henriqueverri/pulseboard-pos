@@ -32,6 +32,19 @@ public class Product {
   @Column(nullable = false)
   private boolean active;
 
+  @Column(name = "track_stock", nullable = false)
+  private boolean trackStock;
+
+  /**
+   * Only {@code InventoryService} changes the balance, with conditional SQL updates. Never written
+   * by JPA, so saving an edited product cannot overwrite a sale committed in the meantime.
+   */
+  @Column(name = "stock_quantity", nullable = false, insertable = false, updatable = false)
+  private int stockQuantity;
+
+  @Column(name = "stock_min", nullable = false)
+  private int stockMin;
+
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
 
@@ -53,6 +66,19 @@ public class Product {
     this.updatedAt = now.truncatedTo(ChronoUnit.MICROS);
   }
 
+  public void configureStock(boolean trackStock, int stockMin) {
+    if (stockMin < 0) {
+      throw new IllegalArgumentException("stock minimum must not be negative");
+    }
+    this.trackStock = trackStock;
+    this.stockMin = stockMin;
+  }
+
+  /** At or below the minimum, including zero; products without stock control are never low. */
+  public boolean isLowStock() {
+    return trackStock && stockQuantity <= stockMin;
+  }
+
   public UUID getId() {
     return id;
   }
@@ -71,6 +97,18 @@ public class Product {
 
   public boolean isActive() {
     return active;
+  }
+
+  public boolean isTrackStock() {
+    return trackStock;
+  }
+
+  public int getStockQuantity() {
+    return stockQuantity;
+  }
+
+  public int getStockMin() {
+    return stockMin;
   }
 
   public Instant getCreatedAt() {

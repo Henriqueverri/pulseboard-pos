@@ -11,7 +11,10 @@ import { EmptyState, SkeletonRows } from '../../components/ui/States'
 import { formatMoney } from '../../lib/money'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 
-/** Only active products can be sold, so inactive ones are never offered. */
+/**
+ * Only active products can be sold, so inactive ones are never offered. A product out of stock is
+ * listed but cannot be added; the payment is still the real check, since the list can be stale.
+ */
 export function ProductSearch({ onAdd }: { onAdd: (product: Product) => void }) {
   const [search, setSearch] = useState('')
   const q = useDebouncedValue(search.trim(), 250)
@@ -45,30 +48,41 @@ export function ProductSearch({ onAdd }: { onAdd: (product: Product) => void }) 
       )}
       {products.data && products.data.content.length > 0 && (
         <ul className="divide-y divide-ink/[0.05]">
-          {products.data.content.map((product) => (
-            <li key={product.id} className="flex items-center gap-4 px-4 py-3 sm:px-5">
-              <span
-                className="hidden size-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 sm:flex"
-                aria-hidden="true"
-              >
-                <PackageIcon size={20} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink">{product.name}</p>
-                <p className="font-mono text-xs text-ink/55">{product.sku}</p>
-              </div>
-              <span className="text-sm font-semibold tabular">{formatMoney(product.price)}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label={`Adicionar ${product.name}`}
-                leading={<PlusIcon size={14} weight="bold" aria-hidden="true" />}
-                onClick={() => onAdd(product)}
-              >
-                Adicionar
-              </Button>
-            </li>
-          ))}
+          {products.data.content.map((product) => {
+            const soldOut = product.trackStock && product.stockQuantity === 0
+            return (
+              <li key={product.id} className="flex items-center gap-4 px-4 py-3 sm:px-5">
+                <span
+                  className="hidden size-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 sm:flex"
+                  aria-hidden="true"
+                >
+                  <PackageIcon size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink">{product.name}</p>
+                  <p className="flex flex-wrap items-center gap-x-2 text-xs text-ink/55">
+                    <span className="font-mono">{product.sku}</span>
+                    {product.trackStock && (
+                      <span className={soldOut ? 'font-medium text-danger-strong' : undefined}>
+                        {soldOut ? 'Sem estoque' : `${product.stockQuantity} em estoque`}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="text-sm font-semibold tabular">{formatMoney(product.price)}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Adicionar ${product.name}`}
+                  disabled={soldOut}
+                  leading={<PlusIcon size={14} weight="bold" aria-hidden="true" />}
+                  onClick={() => onAdd(product)}
+                >
+                  Adicionar
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Card>

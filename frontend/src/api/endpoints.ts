@@ -14,11 +14,14 @@ import type {
   PaymentMethod,
   Product,
   ProductInput,
+  StockMovement,
+  StockMovementInput,
 } from './types'
 
 export interface ProductFilters {
   q?: string
   active?: boolean
+  lowStock?: boolean
   page?: number
   size?: number
 }
@@ -52,6 +55,13 @@ export const productsApi = {
   list: (filters: ProductFilters) => api.get<Page<Product>>(`/products${query({ ...filters })}`),
   create: (input: ProductInput) => api.post<Product>('/products', input),
   update: (id: string, input: ProductInput) => api.put<Product>(`/products/${id}`, input),
+}
+
+export const stockApi = {
+  movements: (productId: string, page = 0, size = 10) =>
+    api.get<Page<StockMovement>>(`/products/${productId}/stock-movements${query({ page, size })}`),
+  record: (productId: string, input: StockMovementInput) =>
+    api.post<StockMovement>(`/products/${productId}/stock-movements`, input),
 }
 
 export const customersApi = {

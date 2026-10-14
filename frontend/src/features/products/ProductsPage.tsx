@@ -1,11 +1,11 @@
-import { PackageIcon, PencilSimpleIcon, PlusIcon } from '@phosphor-icons/react'
+import { PackageIcon, PencilSimpleIcon, PlusIcon, StackIcon } from '@phosphor-icons/react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { productsApi } from '../../api/endpoints'
 import type { Product } from '../../api/types'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { ErrorAlert } from '../../components/ui/Alert'
-import { Tag } from '../../components/ui/Badge'
+import { StockBadge, Tag } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
 import { Dialog } from '../../components/ui/Dialog'
@@ -15,21 +15,26 @@ import { Pagination, Table, TBody, Td, Th, THead, Tr } from '../../components/ui
 import { formatMoney } from '../../lib/money'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { ProductForm } from './ProductForm'
+import { StockDialog } from './StockDialog'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; product: Product } | null
 type ActiveFilter = 'all' | 'active' | 'inactive'
+type StockFilter = 'all' | 'low'
 
 export function ProductsPage() {
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all')
+  const [stockFilter, setStockFilter] = useState<StockFilter>('all')
   const [page, setPage] = useState(0)
   const [editing, setEditing] = useState<Editing>(null)
+  const [stockOf, setStockOf] = useState<Product | null>(null)
   const q = useDebouncedValue(search.trim(), 300)
   const active = activeFilter === 'all' ? undefined : activeFilter === 'active'
+  const lowStock = stockFilter === 'low' ? true : undefined
 
   const products = useQuery({
-    queryKey: ['products', 'list', { q, active, page }],
-    queryFn: () => productsApi.list({ q, active, page, size: 20 }),
+    queryKey: ['products', 'list', { q, active, lowStock, page }],
+    queryFn: () => productsApi.list({ q, active, lowStock, page, size: 20 }),
     placeholderData: keepPreviousData,
   })
 
@@ -73,6 +78,18 @@ export function ProductsPage() {
             <option value="active">Ativos</option>
             <option value="inactive">Inativos</option>
           </Select>
+          <Select
+            className="w-44"
+            aria-label="Estoque"
+            value={stockFilter}
+            onChange={(event) => {
+              setStockFilter(event.target.value as StockFilter)
+              setPage(0)
+            }}
+          >
+            <option value="all">Qualquer estoque</option>
+            <option value="low">Estoque baixo</option>
+          </Select>
         </div>
 
         {products.error && (
@@ -91,6 +108,7 @@ export function ProductsPage() {
                 <Th>SKU</Th>
                 <Th>Nome</Th>
                 <Th className="text-right">Preço</Th>
+                <Th className="text-right">Estoque</Th>
                 <Th>Situação</Th>
                 <Th>
                   <span className="sr-only">Ações</span>
@@ -102,6 +120,16 @@ export function ProductsPage() {
                     <Td className="font-mono text-xs text-ink/65">{product.sku}</Td>
                     <Td className="font-medium">{product.name}</Td>
                     <Td className="text-right tabular">{formatMoney(product.price)}</Td>
+                    <Td className="text-right">
+                      {product.trackStock ? (
+                        <span className="inline-flex items-center gap-2">
+                          <StockBadge product={product} />
+                          <span className="tabular">{product.stockQuantity}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs text-ink/50">Não controla</span>
+                      )}
+                    </Td>
                     <Td>
                       {product.active ? (
                         <Tag tone="success" dot>
@@ -111,7 +139,18 @@ export function ProductsPage() {
                         <Tag dot>Inativo</Tag>
                       )}
                     </Td>
-                    <Td className="text-right">
+                    <Td className="text-right whitespace-nowrap">
+                      {product.trackStock && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Estoque de ${product.name}`}
+                          leading={<StackIcon size={14} aria-hidden="true" />}
+                          onClick={() => setStockOf(product)}
+                        >
+                          Estoque
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -148,6 +187,8 @@ export function ProductsPage() {
           />
         )}
       </Dialog>
+
+      <StockDialog product={stockOf} onClose={() => setStockOf(null)} />
     </>
   )
 }

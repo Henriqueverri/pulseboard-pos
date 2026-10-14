@@ -29,7 +29,7 @@ Os serviços rodam no plano gratuito do Render e hibernam sem uso: **o primeiro 
 
 ## Sumário
 
-- [Stack](#stack) · [Arquitetura](#arquitetura) · [Fluxo de venda](#fluxo-de-venda) · [Integração e outbox](#integração-com-o-pulseboard)
+- [Stack](#stack) · [Arquitetura](#arquitetura) · [Fluxo de venda](#fluxo-de-venda) · [Estoque](#estoque) · [Integração e outbox](#integração-com-o-pulseboard)
 - [Observabilidade](#observabilidade) · [Autenticação](#autenticação-e-autorização)
 - [Como avaliar](#como-avaliar-em-5-minutos) · [Executar com Docker Compose](#executar-com-docker-compose) · [Executar localmente](#executar-localmente) · [Testes](#testes) · [Deploy](docs/deployment.md)
 - [Variáveis de ambiente](#variáveis-de-ambiente) · [Usuários demo](#usuários-demo) · [Configurar o PulseBoard](#configurar-a-integração-com-o-pulseboard)
@@ -93,13 +93,23 @@ flowchart LR
 
 1. **Caixa** (CASHIER ou ADMIN): busca produtos ativos por SKU ou nome, monta o carrinho (centavos inteiros no front, só prévia), escolhe o cliente (busca ou cadastro rápido) e a forma de pagamento simulada (Dinheiro, Cartão, Pix).
 2. `POST /api/orders` cria o pedido `PENDING`. O servidor ignora preços enviados pelo cliente: preço, SKU e nome vêm do catálogo e ficam como snapshot no item; `total = Σ preço × quantidade`.
-3. `POST /api/orders/{id}/pay` muda para `PAID` e, **na mesma transação**, grava o evento `ORDER_PAID` na outbox. A resposta não espera o PulseBoard.
+3. `POST /api/orders/{id}/pay` muda para `PAID` e, **na mesma transação**, baixa o estoque dos produtos controlados e grava o evento `ORDER_PAID` na outbox. Sem saldo, nada disso acontece (ver [Estoque](#estoque)). A resposta não espera o PulseBoard.
 4. O worker entrega o evento em segundos. O detalhe do pedido e a tela de Integração mostram o status do envio.
 5. **Estorno** (ADMIN): `PAID → REFUNDED` grava `ORDER_REFUNDED`, entregue como mudança de status da mesma transação no PulseBoard, sempre depois da venda.
 
 Máquina de estados: `PENDING → PAID`, `PENDING → CANCELED`, `PAID → REFUNDED`; qualquer outra transição é `409 invalid_order_transition`. Pedidos cancelados nunca foram vendas e não geram evento. `Order` tem `@Version` (locking otimista: a segunda alteração concorrente recebe `409 concurrent_modification`).
 
 **Dinheiro** é `NUMERIC(12,2)` no banco, `BigDecimal` com duas casas no Java e **string** no JSON (`"409.70"`), nos dois sentidos; número JSON em campo monetário é rejeitado. Sem ponto flutuante em nenhum ponto.
+
+## Estoque
+
+Cada produto pode controlar estoque (`trackStock`) e ter um estoque mínimo (`stockMin`). Produtos sem controle, como drinks e porções sem ficha técnica, nunca são bloqueados. A decisão completa, com as alternativas descartadas, está na [ADR 0001](docs/adr/0001-baixa-de-estoque-no-pagamento.md).
+
+- **A baixa acontece no pagamento**, não na criação do pedido: um pedido `PENDING` não reserva nada, e cancelá-lo não tem o que devolver. O estorno devolve exatamente o que a venda baixou.
+- **Sem saldo**, o pagamento responde `409 insufficient_stock` com os SKUs e o saldo restante em `errors`. A transação inteira é desfeita: o pedido continua `PENDING`, nenhuma outra linha fica baixada e nada vai para a outbox.
+- **Concorrência sem lock em Java:** um único `UPDATE ... WHERE stock_quantity + :delta >= 0 RETURNING stock_quantity`. O PostgreSQL trava a linha e reavalia a condição para quem chega depois, então duas vendas nunca levam a mesma última unidade. As linhas são travadas em ordem de `product_id`, o que evita deadlock entre pedidos com os mesmos produtos.
+- **O saldo só muda por movimentação** (`SALE`, `REFUND`, `RECEIPT`, `ADJUSTMENT`), cada uma com o saldo resultante, o pedido, o motivo e o usuário. Entradas e ajustes são feitos pelo ADMIN; o ajuste exige motivo e nunca deixa o saldo negativo.
+- **Telas:** coluna de estoque com selos "Baixo" e "Zerado" e filtro de estoque baixo em Produtos, diálogo com entrada, ajuste e histórico, saldo na busca do caixa (produtos zerados ficam desabilitados) e, se o pagamento for recusado por saldo, a lista dos produtos sem saldo com o carrinho preservado.
 
 ## Integração com o PulseBoard
 
@@ -162,9 +172,9 @@ Sem OpenTelemetry, Prometheus ou Grafana, de propósito: para um worker e uma in
 | Rota | Público | CASHIER | ADMIN |
 |---|---|---|---|
 | `POST /api/auth/login`, `/actuator/health`, Swagger | sim | sim | sim |
-| `GET /api/auth/me`, `GET /api/products/**`, `/api/customers/**` | — | sim | sim |
+| `GET /api/auth/me`, `GET /api/products/**` (inclui o histórico de estoque), `/api/customers/**` | — | sim | sim |
 | `POST /api/orders`, `GET /api/orders/**`, `pay`, `cancel` | — | sim | sim |
-| `POST /api/products`, `PUT /api/products/{id}`, `POST /api/orders/{id}/refund` | — | **não** | sim |
+| `POST /api/products`, `PUT /api/products/{id}`, `POST /api/products/{id}/stock-movements`, `POST /api/orders/{id}/refund` | — | **não** | sim |
 | `/api/integration/**` | — | **não** | sim |
 
 ## Executar com Docker Compose
@@ -207,11 +217,11 @@ Sem `POS_JWT_SECRET` com pelo menos 32 bytes a API **não sobe** (falha explíci
 ## Testes
 
 ```bash
-cd backend && ./mvnw -B spotless:check verify      # 202 testes (Testcontainers: precisa do Docker)
-cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build   # 86 testes
+cd backend && ./mvnw -B spotless:check verify      # 221 testes (Testcontainers: precisa do Docker)
+cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build   # 108 testes
 ```
 
-O que cada suíte protege está em [`docs/testing.md`](docs/testing.md). Destaques: concorrência real no PostgreSQL (dois workers, `SKIP LOCKED`, lease expirado), replay idempotente após resultado perdido e após timeout, toda a tabela de classificação, pausa por 401 sem loop, reconciliação, atomicidade pedido + evento, e a API Key ausente de logs e do health.
+O que cada suíte protege está em [`docs/testing.md`](docs/testing.md). Destaques: concorrência real no PostgreSQL (dois workers, `SKIP LOCKED`, lease expirado; dois pagamentos disputando a última unidade), replay idempotente após resultado perdido e após timeout, toda a tabela de classificação, pausa por 401 sem loop, reconciliação, atomicidade pedido + evento, e a API Key ausente de logs e do health.
 
 A CI (`.github/workflows/ci.yml`) roda backend, frontend e, depois deles, hadolint + build das imagens Docker.
 
@@ -266,7 +276,8 @@ Documentação interativa: Swagger UI em `/swagger-ui/index.html` (OpenAPI em `/
 | Recurso | Rotas |
 |---|---|
 | Autenticação | `POST /api/auth/login`, `GET /api/auth/me` |
-| Produtos | `GET /api/products?q&active&page&size`, `GET /api/products/{id}`, `POST /api/products`, `PUT /api/products/{id}` |
+| Produtos | `GET /api/products?q&active&lowStock&page&size`, `GET /api/products/{id}`, `POST /api/products`, `PUT /api/products/{id}` |
+| Estoque | `GET /api/products/{id}/stock-movements?page&size`, `POST /api/products/{id}/stock-movements` (entrada ou ajuste, ADMIN) |
 | Clientes | `GET /api/customers?q&page&size`, `GET /api/customers/{id}`, `POST /api/customers`, `PUT /api/customers/{id}` |
 | Pedidos | `GET /api/orders?status&from&to&number&page&size`, `GET /api/orders/{id}` (inclui `integrationEvents`), `POST /api/orders`, `POST /api/orders/{id}/pay`, `/cancel`, `/refund` |
 | Integração (ADMIN) | `GET /api/integration/events?status&page&size`, `GET /api/integration/events/{id}`, `POST /api/integration/events/{id}/retry`, `POST /api/integration/events/retry-configuration-failures`, `GET /api/integration/health` |
@@ -283,6 +294,7 @@ Documentação interativa: Swagger UI em `/swagger-ui/index.html` (OpenAPI em `/
 | Payload snapshot imutável | fingerprint estável: retry nunca vira `transaction_conflict` | mudar preço/cliente depois não altera o que é reenviado (desejado) |
 | Ordem por pedido via `NOT EXISTS` no claim | estorno nunca antes da venda, sem framework de ordenação | uma venda falhando bloqueia o estorno dela até ser resolvida |
 | Fencing por `attempts` | worker atrasado não sobrescreve resultado | — |
+| Baixa de estoque no pagamento, com `UPDATE` condicional ([ADR 0001](docs/adr/0001-baixa-de-estoque-no-pagamento.md)) | sem reserva para expirar; a última unidade nunca é vendida duas vezes; venda sem saldo não chega à outbox | a lista do caixa pode estar desatualizada: o saldo só é garantido no pagamento |
 | Sem retry em processo | a outbox é a única fonte de verdade sobre tentativas | — |
 | 401 pausa a integração | chave inválida não queima tentativas nem gera loop | pausa em memória, por instância |
 | JWT HS256 stateless, dois papéis, sem refresh | simples e suficiente para uma ferramenta interna | logout não revoga o token (expira em 8 h) |
@@ -295,7 +307,8 @@ Documentação interativa: Swagger UI em `/swagger-ui/index.html` (OpenAPI em `/
 
 Conscientemente fora do escopo deste projeto:
 
-- **Pagamento simulado** (Dinheiro, Cartão, Pix são só rótulos); sem gateway, sem estoque, sem desconto/frete, uma moeda por instalação, sem multiempresa.
+- **Pagamento simulado** (Dinheiro, Cartão, Pix são só rótulos); sem gateway, sem desconto/frete, uma moeda por instalação, sem multiempresa.
+- **Estoque sem ficha técnica:** produtos compostos (drinks, porções) não baixam insumos; o saldo ainda não é enviado ao PulseBoard.
 - **Sem cadastro de usuários** nem refresh token; o token no `sessionStorage` é um trade-off documentado.
 - **Sem métricas Prometheus, OpenTelemetry/tracing, Grafana, alertas** e sem dead letter separada (`FAILED` fica na própria tabela, visível e reprocessável).
 - **Sem disparo imediato pós-commit**: a latência de entrega é a do polling (2 s).
@@ -317,6 +330,7 @@ pulseboard-pos/
 │       │   ├── catalog/      produtos
 │       │   ├── customer/     clientes
 │       │   ├── order/        pedidos, itens, máquina de estados
+│       │   ├── inventory/    InventoryService (baixa e devolução), StockStore (SQL), movimentações
 │       │   ├── security/     JWT, papéis, login, seed de usuários
 │       │   └── integration/  IntegrationController/Service, PulseBoardHealthIndicator,
 │       │                     outbox/ (OutboxService, OutboxStore, OutboxWorker, classificador, retry, pausa)
@@ -332,6 +346,7 @@ pulseboard-pos/
 │   ├── testing.md                    o que cada suíte protege
 │   ├── deployment.md                 produção: Render, Supabase, chave gerenciada
 │   ├── demo.md                       roteiro reproduzível
+│   ├── adr/                          decisões registradas (0001: baixa de estoque no pagamento)
 │   └── demo/                         screenshots reais
 ├── docker-compose.yml                db + api + web, com healthchecks
 ├── render.yaml                       Blueprint do Render (api + web)
@@ -339,7 +354,7 @@ pulseboard-pos/
 └── .github/workflows/ci.yml          backend, frontend, docker (hadolint + build)
 ```
 
-**Migrations** (`backend/src/main/resources/db/migration`): `V1` baseline vazio, `V2` produtos e clientes, `V3` pedidos, `V4` seed do catálogo (40 SKUs), `V5` usuários, `V6` `outbox_events`, `V7` retry (`next_attempt_at`, `failure_kind`, `attempts_at_retry`, índice de claim).
+**Migrations** (`backend/src/main/resources/db/migration`): `V1` baseline vazio, `V2` produtos e clientes, `V3` pedidos, `V4` seed do catálogo (40 SKUs), `V5` usuários, `V6` `outbox_events`, `V7` retry (`next_attempt_at`, `failure_kind`, `attempts_at_retry`, índice de claim), `V8` estoque (`track_stock`, `stock_quantity`, `stock_min` em `products` e a tabela `stock_movements`).
 
 ## Licença
 

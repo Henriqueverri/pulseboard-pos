@@ -30,6 +30,12 @@ export interface Product {
   name: string
   price: string
   active: boolean
+  /** Without stock control the balance is ignored: the product never runs out. */
+  trackStock: boolean
+  stockQuantity: number
+  stockMin: number
+  /** Stock control on and balance at or below the minimum. */
+  lowStock: boolean
   createdAt: string
   updatedAt: string
 }
@@ -39,6 +45,31 @@ export interface ProductInput {
   name: string
   price: string
   active: boolean
+  trackStock: boolean
+  stockMin: number
+}
+
+export type StockMovementKind = 'SALE' | 'REFUND' | 'RECEIPT' | 'ADJUSTMENT'
+
+export interface StockMovement {
+  id: string
+  productId: string
+  kind: StockMovementKind
+  /** Signed: negative takes units out. */
+  quantity: number
+  balanceAfter: number
+  orderId: string | null
+  orderNumber: number | null
+  reason: string | null
+  userName: string | null
+  createdAt: string
+}
+
+/** Sales and refunds move the stock on their own; by hand only receipts and adjustments. */
+export interface StockMovementInput {
+  kind: 'RECEIPT' | 'ADJUSTMENT'
+  quantity: number
+  reason?: string
 }
 
 export interface Customer {

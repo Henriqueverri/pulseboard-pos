@@ -32,7 +32,8 @@ public class ProductService {
   }
 
   @Transactional(readOnly = true)
-  public PageResponse<ProductResponse> search(String q, Boolean active, int page, int size) {
+  public PageResponse<ProductResponse> search(
+      String q, Boolean active, boolean lowStock, int page, int size) {
     Specification<Product> spec =
         (root, query, cb) -> {
           List<Predicate> predicates = new ArrayList<>();
@@ -45,6 +46,11 @@ public class ProductService {
           }
           if (active != null) {
             predicates.add(cb.equal(root.get("active"), active));
+          }
+          if (lowStock) {
+            predicates.add(cb.isTrue(root.get("trackStock")));
+            predicates.add(
+                cb.lessThanOrEqualTo(root.<Integer>get("stockQuantity"), root.get("stockMin")));
           }
           return cb.and(predicates.toArray(Predicate[]::new));
         };
@@ -65,6 +71,9 @@ public class ProductService {
     }
     Product product =
         new Product(sku, request.name().trim(), request.price(), request.active(), clock.instant());
+    product.configureStock(
+        Boolean.TRUE.equals(request.trackStock()),
+        request.stockMin() == null ? 0 : request.stockMin());
     return ProductResponse.from(saveUnique(product, sku));
   }
 
@@ -76,6 +85,9 @@ public class ProductService {
       throw duplicateSku(sku);
     }
     product.update(sku, request.name().trim(), request.price(), request.active(), clock.instant());
+    product.configureStock(
+        request.trackStock() == null ? product.isTrackStock() : request.trackStock(),
+        request.stockMin() == null ? product.getStockMin() : request.stockMin());
     return ProductResponse.from(saveUnique(product, sku));
   }
 

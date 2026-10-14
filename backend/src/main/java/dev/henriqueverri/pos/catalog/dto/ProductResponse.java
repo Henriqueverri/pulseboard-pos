@@ -11,6 +11,10 @@ public record ProductResponse(
     String name,
     BigDecimal price,
     boolean active,
+    boolean trackStock,
+    int stockQuantity,
+    int stockMin,
+    boolean lowStock,
     Instant createdAt,
     Instant updatedAt) {
 
@@ -21,6 +25,10 @@ public record ProductResponse(
         product.getName(),
         product.getPrice(),
         product.isActive(),
+        product.isTrackStock(),
+        product.getStockQuantity(),
+        product.getStockMin(),
+        product.isLowStock(),
         product.getCreatedAt(),
         product.getUpdatedAt());
   }

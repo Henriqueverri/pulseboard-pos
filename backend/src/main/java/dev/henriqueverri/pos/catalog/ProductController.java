@@ -4,6 +4,7 @@ import dev.henriqueverri.pos.catalog.dto.ProductRequest;
 import dev.henriqueverri.pos.catalog.dto.ProductResponse;
 import dev.henriqueverri.pos.shared.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -36,9 +37,12 @@ public class ProductController {
   public PageResponse<ProductResponse> list(
       @RequestParam(required = false) String q,
       @RequestParam(required = false) Boolean active,
+      @Parameter(description = "Só produtos com controle de estoque e saldo no mínimo ou abaixo")
+          @RequestParam(defaultValue = "false")
+          boolean lowStock,
       @RequestParam(defaultValue = "0") @Min(0) int page,
       @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-    return service.search(q, active, page, size);
+    return service.search(q, active, lowStock, page, size);
   }
 
   @GetMapping("/{id}")

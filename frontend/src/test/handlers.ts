@@ -8,9 +8,20 @@ import type {
   Page,
   PaymentMethod,
   ProblemDetail,
+  ProductInput,
   Role,
+  StockMovementInput,
 } from '../api/types'
-import { createOrderInDb, db, enqueueEvent, PASSWORD, updateOrder, users } from './db'
+import {
+  createOrderInDb,
+  db,
+  enqueueEvent,
+  moveStock,
+  PASSWORD,
+  updateOrder,
+  users,
+  withLowStock,
+} from './db'
 
 export const TOKENS: Record<Role, string> = { ADMIN: 'admin-token', CASHIER: 'cashier-token' }
 
@@ -126,6 +137,7 @@ export const handlers = [
     const found = db.products.filter(
       (product) =>
         (active === null || String(product.active) === active) &&
+        (url.searchParams.get('lowStock') !== 'true' || product.lowStock) &&
         (product.sku.toLowerCase().includes(q) || product.name.toLowerCase().includes(q)),
     )
     return HttpResponse.json(page(found, url))
@@ -135,18 +147,62 @@ export const handlers = [
     const role = roleOf(request)
     if (!role) return unauthorized()
     if (role !== 'ADMIN') return forbidden()
-    const body = (await request.json()) as { sku: string; name: string; price: string; active: boolean }
+    const body = (await request.json()) as ProductInput
     if (db.products.some((product) => product.sku === body.sku)) {
       return problem(409, 'duplicate_sku', `Já existe um produto com o SKU ${body.sku}.`)
     }
-    const created = {
+    const created = withLowStock({
       ...body,
+      stockQuantity: 0,
+      lowStock: false,
       id: crypto.randomUUID(),
       createdAt: '2026-10-07T12:00:00Z',
       updatedAt: '2026-10-07T12:00:00Z',
-    }
+    })
     db.products.push(created)
     return HttpResponse.json(created, { status: 201 })
+  }),
+
+  http.put('/api/products/:id', async ({ request, params }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const index = db.products.findIndex((product) => product.id === params.id)
+    if (index < 0) {
+      return problem(404, 'not_found', 'Produto não encontrado.')
+    }
+    const body = (await request.json()) as ProductInput
+    db.products[index] = withLowStock({ ...db.products[index], ...body })
+    return HttpResponse.json(db.products[index])
+  }),
+
+  http.get('/api/products/:id/stock-movements', ({ request, params }) => {
+    if (!roleOf(request)) return unauthorized()
+    const url = new URL(request.url)
+    return HttpResponse.json(
+      page(
+        db.movements.filter((movement) => movement.productId === params.id),
+        url,
+      ),
+    )
+  }),
+
+  http.post('/api/products/:id/stock-movements', async ({ request, params }) => {
+    const denied = admin(request)
+    if (denied) return denied
+    const found = db.products.find((product) => product.id === params.id)
+    if (!found) {
+      return problem(404, 'not_found', 'Produto não encontrado.')
+    }
+    if (!found.trackStock) {
+      return problem(422, 'stock_not_tracked', 'Ative o controle de estoque do produto.')
+    }
+    const body = (await request.json()) as StockMovementInput
+    if (!moveStock(found.id, body.kind, body.quantity, { reason: body.reason ?? null })) {
+      return problem(409, 'insufficient_stock', `Saldo insuficiente para ${found.sku}.`, {
+        [found.sku]: [`Restam ${found.stockQuantity} unidades.`],
+      })
+    }
+    return HttpResponse.json(db.movements[0], { status: 201 })
   }),
 
   http.get('/api/customers', ({ request }) => {
@@ -218,6 +274,26 @@ export const handlers = [
   http.post('/api/orders/:id/pay', async ({ request, params }) => {
     if (!roleOf(request)) return unauthorized()
     const { paymentMethod } = (await request.json()) as { paymentMethod: PaymentMethod }
+    const order = db.orders.find((candidate) => candidate.id === params.id)
+    if (order?.status === 'PENDING') {
+      const shortages = Object.fromEntries(
+        order.items.flatMap((item) => {
+          const found = db.products.find((product) => product.id === item.productId)!
+          return found.trackStock && found.stockQuantity < item.quantity
+            ? [[found.sku, [`Restam ${found.stockQuantity} unidades.`]]]
+            : []
+        }),
+      )
+      if (Object.keys(shortages).length > 0) {
+        return problem(409, 'insufficient_stock', 'Saldo insuficiente.', shortages)
+      }
+      order.items.forEach((item) =>
+        moveStock(item.productId, 'SALE', -item.quantity, {
+          orderId: order.id,
+          orderNumber: order.number,
+        }),
+      )
+    }
     return transition(
       String(params.id),
       'PENDING',
@@ -238,6 +314,17 @@ export const handlers = [
     const role = roleOf(request)
     if (!role) return unauthorized()
     if (role !== 'ADMIN') return forbidden()
+    const order = db.orders.find((candidate) => candidate.id === params.id)
+    if (order?.status === 'PAID') {
+      db.movements
+        .filter((movement) => movement.orderId === order.id && movement.kind === 'SALE')
+        .forEach((sale) =>
+          moveStock(sale.productId, 'REFUND', -sale.quantity, {
+            orderId: order.id,
+            orderNumber: order.number,
+          }),
+        )
+    }
     return transition(
       String(params.id),
       'PAID',

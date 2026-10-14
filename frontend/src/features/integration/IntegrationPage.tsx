@@ -75,7 +75,7 @@ export function IntegrationPage() {
     <>
       <PageHeader
         title="Integração com o PulseBoard"
-        description="Cada pagamento e estorno vira um evento entregue ao PulseBoard: o que foi enviado, o que está aguardando e por quê, e o que falhou."
+        description="Cada pagamento, estorno e mudança de saldo de estoque vira um evento entregue ao PulseBoard: o que foi enviado, o que está aguardando e por quê, e o que falhou."
       />
 
       <div className="space-y-6">

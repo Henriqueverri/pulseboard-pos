@@ -30,8 +30,10 @@ public class OutboxService {
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public OutboxEvent enqueue(UUID orderId, OutboxEventType type, String payload) {
-    OutboxEvent event = OutboxEvent.forOrder(orderId, type, payload, clock.instant());
-    entityManager.persist(event);
+    if (!type.isOrderEvent()) {
+      throw new IllegalArgumentException(type + " is not an order event");
+    }
+    OutboxEvent event = persist(orderId, type, payload);
     // Links the HTTP request that changed the order (request_id in the MDC) to the event, whose
     // deliveries are logged with request_id "pos-<event id>".
     log.atInfo()
@@ -41,6 +43,26 @@ public class OutboxService {
         .addKeyValue("event_type", type)
         .addKeyValue("outcome", "enqueued")
         .log("Outbox event enqueued");
+    return event;
+  }
+
+  /** A {@code STOCK_CHANGED} of the product, in the transaction that changed its stock. */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public OutboxEvent enqueueStock(UUID productId, String sku, String payload) {
+    OutboxEvent event = persist(productId, OutboxEventType.STOCK_CHANGED, payload);
+    log.atInfo()
+        .addKeyValue("event_id", event.getId())
+        .addKeyValue("product_id", productId)
+        .addKeyValue("sku", sku)
+        .addKeyValue("event_type", OutboxEventType.STOCK_CHANGED)
+        .addKeyValue("outcome", "enqueued")
+        .log("Outbox event enqueued");
+    return event;
+  }
+
+  private OutboxEvent persist(UUID aggregateId, OutboxEventType type, String payload) {
+    OutboxEvent event = OutboxEvent.of(aggregateId, type, payload, clock.instant());
+    entityManager.persist(event);
     return event;
   }
 }

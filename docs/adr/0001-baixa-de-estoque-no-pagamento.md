@@ -49,3 +49,4 @@ O PostgreSQL trava a linha até o fim da transação. Quem chega depois espera e
 - **O histórico explica cada saldo**: pelo `balance_after` de cada movimento é possível auditar a sequência inteira.
 - **Sem ficha técnica**: produtos compostos (drinks, porções) continuam sem controle de estoque.
 - **Uma linha travada por produto vendido**, durante a transação do pagamento, que é curta e não faz chamadas externas (a entrega ao PulseBoard é assíncrona, pela outbox).
+- **O saldo é espelhado no PulseBoard** pela mesma outbox: cada movimento grava, na sua transação, um `STOCK_CHANGED` com o saldo absoluto. Como o instante é lido com a linha do produto travada, a ordem dos saldos é a ordem dos commits e o PulseBoard fica com o mais recente (ver [integração](../integration.md#payload-stock_changed)).

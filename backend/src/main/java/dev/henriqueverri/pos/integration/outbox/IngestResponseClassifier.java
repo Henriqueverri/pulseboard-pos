@@ -81,6 +81,13 @@ public class IngestResponseClassifier {
           truncate(
               message + " Vincule o cliente pelo ID externo no PulseBoard e reprocesse o evento.");
     }
+    if (status == 422 && type == OutboxEventType.STOCK_CHANGED && hasFieldError(body, "sku")) {
+      message =
+          truncate(
+              message
+                  + " Cadastre o produto com o mesmo SKU no PulseBoard; o próximo movimento"
+                  + " atualiza o saldo, ou reprocesse este evento.");
+    }
     // 422, 413, 409, 404 and any other answer: the same payload would be rejected again.
     return new DeliveryOutcome.Failed(
         FailureKind.PERMANENT, status, requestId, code != null ? code : "HTTP_" + status, message);
@@ -122,6 +129,11 @@ public class IngestResponseClassifier {
       }
     }
     return truncate(String.join(" | ", parts));
+  }
+
+  private static boolean hasFieldError(JsonNode body, String field) {
+    JsonNode errors = body == null ? null : body.get("errors");
+    return errors != null && errors.isObject() && errors.has(field);
   }
 
   private static JsonNode parse(String body) {

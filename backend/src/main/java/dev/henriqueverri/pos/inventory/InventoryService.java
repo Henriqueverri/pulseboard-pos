@@ -1,6 +1,8 @@
 package dev.henriqueverri.pos.inventory;
 
 import dev.henriqueverri.pos.catalog.ProductRepository;
+import dev.henriqueverri.pos.integration.outbox.OutboxService;
+import dev.henriqueverri.pos.integration.pulseboard.IngestPayloadFactory;
 import dev.henriqueverri.pos.inventory.dto.StockMovementRequest;
 import dev.henriqueverri.pos.inventory.dto.StockMovementResponse;
 import dev.henriqueverri.pos.security.CurrentUser;
@@ -12,9 +14,11 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import org.springframework.stereotype.Service;
@@ -25,17 +29,31 @@ import org.springframework.transaction.annotation.Transactional;
  * Stock is taken when an order is paid, not when it is created: a PENDING order reserves nothing,
  * and canceling it has nothing to give back. Every change of a balance writes a movement with the
  * resulting balance, in the same transaction.
+ *
+ * <p>Every change of a product's stock (a movement, or its stock settings) also enqueues a {@code
+ * STOCK_CHANGED} with the absolute balance for PulseBoard, in the same transaction. Its instant is
+ * read after the balance's row lock is taken, and the lock lasts until commit, so a later change of
+ * the same product always carries a later instant: PulseBoard keeps the newest.
  */
 @Service
 public class InventoryService {
 
   private final StockStore store;
   private final ProductRepository products;
+  private final OutboxService outbox;
+  private final IngestPayloadFactory payloads;
   private final Clock clock;
 
-  public InventoryService(StockStore store, ProductRepository products, Clock clock) {
+  public InventoryService(
+      StockStore store,
+      ProductRepository products,
+      OutboxService outbox,
+      IngestPayloadFactory payloads,
+      Clock clock) {
     this.store = store;
     this.products = products;
+    this.outbox = outbox;
+    this.payloads = payloads;
     this.clock = clock;
   }
 
@@ -54,9 +72,11 @@ public class InventoryService {
     Instant now = now();
     UUID userId = CurrentUser.id().orElse(null);
     Map<String, List<String>> shortages = new LinkedHashMap<>();
+    Set<UUID> moved = new LinkedHashSet<>();
     for (Line line : sortedByProduct(lines, Line::productId)) {
       OptionalInt balance = store.move(line.productId(), -line.quantity());
       if (balance.isPresent()) {
+        moved.add(line.productId());
         store.insert(
             line.productId(),
             StockMovementKind.SALE,
@@ -76,6 +96,7 @@ public class InventoryService {
     if (!shortages.isEmpty()) {
       throw new InsufficientStockException(shortages);
     }
+    moved.forEach(this::publish);
   }
 
   /**
@@ -86,10 +107,12 @@ public class InventoryService {
   public void restock(UUID orderId) {
     Instant now = now();
     UUID userId = CurrentUser.id().orElse(null);
+    Set<UUID> moved = new LinkedHashSet<>();
     for (StockStore.SoldLine sold :
         sortedByProduct(store.soldBy(orderId), StockStore.SoldLine::productId)) {
       OptionalInt balance = store.move(sold.productId(), sold.quantity());
       if (balance.isPresent()) {
+        moved.add(sold.productId());
         store.insert(
             sold.productId(),
             StockMovementKind.REFUND,
@@ -101,6 +124,7 @@ public class InventoryService {
             now);
       }
     }
+    moved.forEach(this::publish);
   }
 
   @Transactional
@@ -150,7 +174,17 @@ public class InventoryService {
             reason,
             CurrentUser.id().orElse(null),
             now());
+    publish(productId);
     return store.find(id).orElseThrow();
+  }
+
+  /**
+   * The product's stock settings changed (stock control turned on or off, minimum or SKU changed):
+   * PulseBoard gets the current state. Runs after the product row was written, in its transaction.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void stockSettingsChanged(UUID productId) {
+    publish(productId);
   }
 
   @Transactional(readOnly = true)
@@ -165,6 +199,15 @@ public class InventoryService {
         size,
         total,
         (int) ((total + size - 1) / size));
+  }
+
+  /** Reads the balance after this transaction's changes and enqueues it for PulseBoard. */
+  private void publish(UUID productId) {
+    StockStore.Stock stock = store.stock(productId).orElseThrow();
+    outbox.enqueueStock(
+        productId,
+        stock.sku(),
+        payloads.stockChanged(stock.sku(), stock.tracked(), stock.quantity(), stock.min(), now()));
   }
 
   private Instant now() {

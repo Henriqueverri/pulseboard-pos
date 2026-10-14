@@ -176,6 +176,38 @@ class IngestResponseClassifierTest {
   }
 
   @Test
+  void anUnknownSkuOfAStockBalanceIsPermanentWithAHint() {
+    String body =
+        "{\"message\":\"The product could not be resolved.\",\"code\":\"validation_failed\","
+            + "\"errors\":{\"sku\":[\"The selected product SKU is invalid.\"]}}";
+
+    Failed stock =
+        (Failed)
+            classifier.classify(
+                response(422, body, false, null), OutboxEventType.STOCK_CHANGED, NOW);
+    Failed sale = (Failed) classifyPaid(response(422, body, false, null));
+
+    assertThat(stock.kind()).isEqualTo(FailureKind.PERMANENT);
+    assertThat(stock.message())
+        .startsWith(
+            "The product could not be resolved. | sku: The selected product SKU is invalid.")
+        .contains("Cadastre o produto com o mesmo SKU no PulseBoard");
+    assertThat(sale.message()).doesNotContain("Cadastre");
+  }
+
+  @Test
+  void aStockBalanceIsSentEvenWhenPulseBoardKeptANewerOne() {
+    DeliveryOutcome outcome =
+        classifier.classify(
+            response(200, "{\"data\":{\"sku\":\"BEER\",\"status\":\"low\"}}", true, null),
+            OutboxEventType.STOCK_CHANGED,
+            NOW);
+
+    assertThat(outcome).isInstanceOf(Sent.class);
+    assertThat(((Sent) outcome).replayed()).isTrue();
+  }
+
+  @Test
   void invalidTransitionOfARefundIsReconciled() {
     DeliveryOutcome outcome =
         classifier.classify(

@@ -128,19 +128,27 @@ export interface Order extends OrderSummary {
   integrationEvents: IntegrationEvent[]
 }
 
-export type IntegrationEventType = 'ORDER_PAID' | 'ORDER_REFUNDED'
+export type IntegrationEventType = 'ORDER_PAID' | 'ORDER_REFUNDED' | 'STOCK_CHANGED'
 
 export type IntegrationEventStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED'
 
 /** Why an event is FAILED; none is retried automatically. */
 export type FailureKind = 'PERMANENT' | 'EXHAUSTED' | 'CONFIGURATION'
 
-/** One outbox event. `payload` (the exact body sent to PulseBoard) only comes in the detail. */
+/**
+ * One outbox event. Order events fill `order*`, stock events `product*`; `externalId` is how
+ * PulseBoard knows the subject (the order's external id or the product's SKU). `payload` (the exact
+ * body sent to PulseBoard) only comes in the detail.
+ */
 export interface IntegrationEvent {
   id: string
   sequence: number
-  orderId: string
+  aggregateType: 'ORDER' | 'PRODUCT'
+  orderId: string | null
   orderNumber: number | null
+  productId: string | null
+  productSku: string | null
+  productName: string | null
   externalId: string
   eventType: IntegrationEventType
   status: IntegrationEventStatus

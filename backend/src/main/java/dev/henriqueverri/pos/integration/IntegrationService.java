@@ -82,7 +82,7 @@ public class IntegrationService {
     OutboxEvent event = events.findById(id).orElseThrow(() -> ApiException.notFound("Evento"));
     IntegrationEventResponse view = views(List.of(event)).get(0);
     return IntegrationEventResponse.from(
-        event, view.orderNumber(), view.blockedBy(), payload(event));
+        event, view.orderNumber(), view.productName(), view.blockedBy(), payload(event));
   }
 
   /** The events of one order, oldest first, for the order detail. */
@@ -137,25 +137,40 @@ public class IntegrationService {
     if (page.isEmpty()) {
       return List.of();
     }
-    Set<UUID> orderIds = page.stream().map(OutboxEvent::getAggregateId).collect(Collectors.toSet());
+    Map<Boolean, Set<UUID>> ids =
+        page.stream()
+            .collect(
+                Collectors.partitioningBy(
+                    event -> event.getEventType().isOrderEvent(),
+                    Collectors.mapping(OutboxEvent::getAggregateId, Collectors.toSet())));
+    Set<UUID> orderIds = ids.get(true);
     Map<UUID, Long> orderNumbers = orderNumbers(orderIds);
+    Map<UUID, String> productNames = productNames(ids.get(false));
     Map<UUID, List<OutboxEvent>> unsent =
-        events.findByAggregateIdInAndStatusNotOrderBySequence(orderIds, OutboxStatus.SENT).stream()
-            .collect(Collectors.groupingBy(OutboxEvent::getAggregateId));
+        orderIds.isEmpty()
+            ? Map.of()
+            : events
+                .findByAggregateIdInAndStatusNotOrderBySequence(orderIds, OutboxStatus.SENT)
+                .stream()
+                .collect(Collectors.groupingBy(OutboxEvent::getAggregateId));
     return page.stream()
         .map(
             event ->
                 IntegrationEventResponse.from(
                     event,
                     orderNumbers.get(event.getAggregateId()),
+                    productNames.get(event.getAggregateId()),
                     blockedBy(event, unsent.getOrDefault(event.getAggregateId(), List.of())),
                     null))
         .toList();
   }
 
-  /** The first earlier event of the same order that is not {@code SENT}, for a waiting event. */
+  /**
+   * The first earlier event of the same order that is not {@code SENT}, for a waiting order event.
+   * Stock events never wait for each other.
+   */
   private static Long blockedBy(OutboxEvent event, List<OutboxEvent> unsentOfOrder) {
-    if (event.getStatus() != OutboxStatus.PENDING) {
+    if (event.getStatus() != OutboxStatus.PENDING || !event.getEventType().isOrderEvent()) {
       return null;
     }
     return unsentOfOrder.stream()
@@ -166,10 +181,26 @@ public class IntegrationService {
   }
 
   private Map<UUID, Long> orderNumbers(Collection<UUID> orderIds) {
+    if (orderIds.isEmpty()) {
+      return Map.of();
+    }
     return jdbc
         .sql("SELECT id, number FROM orders WHERE id IN (:ids)")
         .param("ids", orderIds)
         .query((rs, row) -> Map.entry(rs.getObject("id", UUID.class), rs.getLong("number")))
+        .list()
+        .stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  private Map<UUID, String> productNames(Collection<UUID> productIds) {
+    if (productIds.isEmpty()) {
+      return Map.of();
+    }
+    return jdbc
+        .sql("SELECT id, name FROM products WHERE id IN (:ids)")
+        .param("ids", productIds)
+        .query((rs, row) -> Map.entry(rs.getObject("id", UUID.class), rs.getString("name")))
         .list()
         .stream()
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));

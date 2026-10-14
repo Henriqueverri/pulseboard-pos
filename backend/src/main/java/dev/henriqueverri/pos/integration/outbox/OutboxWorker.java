@@ -121,6 +121,11 @@ public class OutboxWorker {
           case ORDER_PAID -> client.createTransaction(event.payload(), event.requestId());
           case ORDER_REFUNDED ->
               client.changeStatus(externalId(event), event.payload(), event.requestId());
+          case STOCK_CHANGED ->
+              client.putStock(
+                  IngestPayloadFactory.stockSku(event.payload()),
+                  event.payload(),
+                  event.requestId());
         };
     DeliveryOutcome outcome = classifier.classify(result, event.type(), clock.instant());
     if (outcome instanceof DeliveryOutcome.Reconcile conflict) {
@@ -252,9 +257,9 @@ public class OutboxWorker {
     };
   }
 
-  /** A failed event holds back the later events of its order until it is reprocessed. */
+  /** A failed order event holds back the later events of its order until it is reprocessed. */
   private void warnIfBlocking(ClaimedEvent event, boolean recorded) {
-    if (!recorded) {
+    if (!recorded || !event.type().isOrderEvent()) {
       return;
     }
     long blocked = store.countWaitingBehind(event);
@@ -280,11 +285,16 @@ public class OutboxWorker {
 
   /** The identity of the attempt; {@code event_id} and {@code request_id} are in the MDC. */
   private static LoggingEventBuilder fields(LoggingEventBuilder builder, ClaimedEvent event) {
-    return builder
-        .addKeyValue("order_id", event.aggregateId())
-        .addKeyValue("external_id", externalId(event))
-        .addKeyValue("event_type", event.type())
-        .addKeyValue("attempt", event.attempts());
+    if (event.type().isOrderEvent()) {
+      builder
+          .addKeyValue("order_id", event.aggregateId())
+          .addKeyValue("external_id", externalId(event));
+    } else {
+      builder
+          .addKeyValue("product_id", event.aggregateId())
+          .addKeyValue("sku", IngestPayloadFactory.stockSku(event.payload()));
+    }
+    return builder.addKeyValue("event_type", event.type()).addKeyValue("attempt", event.attempts());
   }
 
   private static String externalId(ClaimedEvent event) {

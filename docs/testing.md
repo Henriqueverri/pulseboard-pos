@@ -30,7 +30,7 @@ Os testes de integração usam **Testcontainers**: sobem um `postgres:16-alpine`
 | `AuthorizationMatrixTest` | matriz ADMIN/CASHIER (403), inclusive movimentação de estoque só por ADMIN, e 401 em todas as rotas da API |
 | `SecurityPropertiesTest`, `UserSeederTest` | startup falha com segredo fraco; seed idempotente com BCrypt |
 | `PosApplicationIntegrationTest` | PostgreSQL 16, migrations aplicadas, `/actuator/health` `UP` |
-| `IngestPayloadFactoryTest` | JSON exato de `ORDER_PAID` e `ORDER_REFUNDED` (dinheiro em string, UTC em segundos, sem `document`) |
+| `IngestPayloadFactoryTest` | JSON exato de `ORDER_PAID`, `ORDER_REFUNDED` (dinheiro em string, UTC em segundos, sem `document`) e `STOCK_CHANGED` (saldo absoluto, UTC em microssegundos) |
 | `OutboxTransactionTest` | evento gravado na transação de `pay`/`refund`; falha real do banco ao gravar o evento desfaz o pagamento; cancelamento não gera evento |
 | `OutboxDeliveryTest` | 201 → `SENT`, headers e corpo exatos, reenvio após resultado perdido vira replay idempotente, worker atrasado não sobrescreve o resultado, estorno por `status-changes`, 422 → `FAILED` / `PERMANENT`, timeout e falha de rede → nova tentativa |
 | `OutboxResilienceTest` | esgotamento após 10 tentativas, `429` com e sem `Retry-After`, `401` → pausa → reprocessar falhas de configuração, reconciliação do `409 invalid_transition`, reprocessamento manual |
@@ -39,7 +39,8 @@ Os testes de integração usam **Testcontainers**: sobem um `postgres:16-alpine`
 | `RequestIdFilterTest`, `RequestIdApiTest` | `X-Request-Id` recebido é reutilizado, ausente ou malformado é gerado; presente em 401; logs da requisição carregam o id; MDC limpo depois (inclusive em erro) |
 | `PulseBoardHealthIndicatorTest`, `IntegrationHealthActuatorTest` | health da integração desligada, sem chave, chave malformada, ativa e pausada; sem segredo; anônimo e CASHIER só veem o status, ADMIN vê o componente `pulseBoard` |
 | `IntegrationApiTest` | endpoints de integração: lista, filtro, detalhe com payload, retry (404/409), health sem segredo, eventos no detalhe do pedido |
-| `IngestResponseClassifierTest`, `RetryPolicyTest`, `IntegrationPauseTest` | tabela de classificação completa, fórmula do backoff com jitter e teto, `Retry-After`, pausa de 15 min |
+| `StockOutboxTest` | cada movimentação grava o saldo absoluto (`STOCK_CHANGED`, instantes crescentes), venda recusada não grava nada, só mudanças de configuração de estoque geram evento, `PUT /ingest/products/{sku}/stock` com o snapshot exato, replay → `SENT`, SKU desconhecido → `FAILED` com instrução sem bloquear o saldo seguinte, evento de produto na API da tela de Integração |
+| `IngestResponseClassifierTest`, `RetryPolicyTest`, `IntegrationPauseTest` | tabela de classificação completa (inclui SKU desconhecido no estoque), fórmula do backoff com jitter e teto, `Retry-After`, pausa de 15 min |
 | `OutboxWorkerDisabledTest`, `PulseBoardPropertiesTest` | integração desligada, sem chave ou pausada não reivindica nem envia nada; prefixo público da chave; a chave nunca aparece no `toString` |
 
 ## Frontend
@@ -63,7 +64,7 @@ Vitest com jsdom; as telas usam as rotas e os providers reais, e a API é simula
 | `authorization.test.tsx` | CASHIER sem menu/tela de Produtos e sem Estornar; ADMIN com acesso e estorno |
 | `orders.test.tsx` | filtros na URL, pagar, cancelar, conflito 409, 403 → acesso negado |
 | `ProductsPage.test.tsx` | criação com preço em string decimal e com controle de estoque, `duplicate_sku` no campo, erros de validação do servidor, selos "Baixo" e "Zerado", filtro de estoque baixo, diálogo de estoque (entrada com histórico, ajuste exige motivo, saldo insuficiente no campo) |
-| `integration.test.tsx` | card de saúde, lista com "bloqueado por" e tipo de falha, reprocessar (sucesso e 409), painel com payload e request ids, banner de pausa, integração desligada, filtro na URL, polling, CASHIER sem acesso, status de envio no detalhe do pedido |
+| `integration.test.tsx` | card de saúde, lista com "bloqueado por" e tipo de falha, evento de estoque pelo produto (sem link de pedido, nunca bloqueado), reprocessar (sucesso e 409), painel com payload e request ids, banner de pausa, integração desligada, filtro na URL, polling, CASHIER sem acesso, status de envio no detalhe do pedido |
 
 ## Docker
 

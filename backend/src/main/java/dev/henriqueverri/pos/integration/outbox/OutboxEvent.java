@@ -14,15 +14,16 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * One delivery to PulseBoard, written in the same transaction as the order change. The payload is
- * the exact body to send, frozen when the event is created; delivery state only changes through the
- * worker's conditional updates in {@link OutboxStore}.
+ * One delivery to PulseBoard, written in the same transaction as the order or stock change. The
+ * payload is the exact body to send, frozen when the event is created; delivery state only changes
+ * through the worker's conditional updates in {@link OutboxStore}.
  */
 @Entity
 @Table(name = "outbox_events")
 public class OutboxEvent {
 
   public static final String AGGREGATE_ORDER = "ORDER";
+  public static final String AGGREGATE_PRODUCT = "PRODUCT";
 
   @Id private UUID id;
 
@@ -93,11 +94,11 @@ public class OutboxEvent {
 
   protected OutboxEvent() {}
 
-  static OutboxEvent forOrder(UUID orderId, OutboxEventType type, String payload, Instant now) {
+  static OutboxEvent of(UUID aggregateId, OutboxEventType type, String payload, Instant now) {
     OutboxEvent event = new OutboxEvent();
     event.id = UUID.randomUUID();
-    event.aggregateType = AGGREGATE_ORDER;
-    event.aggregateId = orderId;
+    event.aggregateType = type.aggregateType();
+    event.aggregateId = aggregateId;
     event.eventType = type;
     event.payload = payload;
     event.status = OutboxStatus.PENDING;

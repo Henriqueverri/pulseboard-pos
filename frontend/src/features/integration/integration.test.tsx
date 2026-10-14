@@ -125,6 +125,46 @@ describe('integration screen', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('shows a stock event by its product, never held back by the earlier ones', async () => {
+    const productId = crypto.randomUUID()
+    const stock = {
+      orderId: null,
+      orderNumber: null,
+      aggregateType: 'PRODUCT' as const,
+      eventType: 'STOCK_CHANGED' as const,
+      productId,
+      productSku: 'BAR-HEI',
+      productName: 'Heineken long neck',
+      externalId: 'BAR-HEI',
+    }
+    db.events.push(
+      makeEvent({
+        ...stock,
+        sequence: 40,
+        status: 'FAILED',
+        failureKind: 'PERMANENT',
+        lastHttpStatus: 422,
+        lastErrorCode: 'validation_failed',
+        lastError: 'The product could not be resolved. | sku: The selected product SKU is invalid.',
+        payload: { sku: 'BAR-HEI', tracked: true, quantity: 12, min_quantity: 6, occurred_at: '2026-10-13T22:10:00.123456Z' },
+      }),
+      makeEvent({ ...stock, sequence: 41 }),
+    )
+    const { user } = renderApp('/integration', { as: 'ADMIN' })
+
+    await screen.findByRole('cell', { name: '#40' })
+    expect(within(rowOf(40)).getByText('Estoque')).toBeInTheDocument()
+    expect(within(rowOf(40)).getByText('Heineken long neck')).toBeInTheDocument()
+    expect(within(rowOf(40)).queryByRole('link')).not.toBeInTheDocument()
+    expect(within(rowOf(41)).queryByText(/bloqueado por/)).not.toBeInTheDocument()
+
+    await user.click(within(rowOf(40)).getByRole('button', { name: 'Detalhes' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Evento #40' })
+    expect(within(drawer).queryByRole('link', { name: /Pedido/ })).not.toBeInTheDocument()
+    expect(within(drawer).getByText('SKU no PulseBoard')).toBeInTheDocument()
+    expect(within(drawer).getByLabelText('Payload enviado')).toHaveTextContent('"min_quantity": 6')
+  })
+
   it('warns when the integration is paused and resumes it after the key is fixed', async () => {
     const order = makeOrder({ status: 'PAID' })
     db.orders.push(order)

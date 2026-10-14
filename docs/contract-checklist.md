@@ -30,6 +30,7 @@ Nenhuma divergência que exigisse mudança no POS foi encontrada. O PulseBoard n
 | `total_amount` | opcional; se enviado, igual à soma | enviado como conferência | ✅ | Teste; Real |
 | Valor máximo | até `9999999999.99` | `NUMERIC(12,2)`; total acima é rejeitado no POS (`order_total_too_large`) | ✅ | Teste `OrderApiTest` |
 | Mudança de status | `POST …/status-changes` com `{status, occurred_at}`; `paid → refunded` | `{"status":"refunded","occurred_at":…}`, sempre depois do `ORDER_PAID` do mesmo pedido estar `SENT` | ✅ | Teste `orderRefundedIsTheExactStatusChangeBody`, `OutboxClaimTest.eventsOfAnOrderAreClaimedInSequence`; Real (`status_history` = `paid → refunded`) |
+| Saldo de estoque | `PUT /ingest/products/{sku}/stock` com `{tracked, quantity, min_quantity, occurred_at}`; o `occurred_at` mais recente vence, igual ou mais antigo → `200` replay | `STOCK_CHANGED` com o saldo absoluto e o instante em microssegundos, lido depois do lock da linha do produto; `422` em `sku` → `FAILED` / `PERMANENT` com instrução; nunca bloqueado por um saldo anterior | ✅ | Teste `StockOutboxTest` (URL, headers e corpo exatos, replay, SKU desconhecido), `anUnknownSkuOfAStockBalanceIsPermanentWithAHint`; Real (2026-10-13: ligar o controle, entrada de 10, venda de 7 e estorno chegaram como 3 e 10 com mínimo 4 em `PB-001-ESS`, log `ingest.product_stock` `outcome=updated` com o mesmo `request_id`) |
 
 ## Respostas
 

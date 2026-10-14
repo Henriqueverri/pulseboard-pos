@@ -49,4 +49,5 @@ export const STOCK_MOVEMENT_LABELS: Record<StockMovementKind, string> = {
 export const EVENT_TYPE_LABELS: Record<IntegrationEventType, string> = {
   ORDER_PAID: 'Venda',
   ORDER_REFUNDED: 'Estorno',
+  STOCK_CHANGED: 'Estoque',
 }

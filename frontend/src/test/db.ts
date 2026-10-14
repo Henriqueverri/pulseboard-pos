@@ -125,7 +125,11 @@ export function makeEvent(
   const id = overrides.id ?? crypto.randomUUID()
   return {
     id,
+    aggregateType: 'ORDER',
     orderNumber: 1001,
+    productId: null,
+    productSku: null,
+    productName: null,
     externalId: `pos:${overrides.orderId}`,
     eventType: 'ORDER_PAID',
     status: 'PENDING',

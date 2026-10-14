@@ -71,6 +71,12 @@ public class PulseBoardClient {
         requestId);
   }
 
+  /** {@code PUT /ingest/products/{sku}/stock}. */
+  public DeliveryResult putStock(String sku, String payload, String requestId) {
+    return send(
+        "put_stock", rest.put().uri("/ingest/products/{sku}/stock", sku), payload, requestId);
+  }
+
   /** {@code GET /ingest/transactions/{external_id}}: the current state, for reconciliation. */
   public DeliveryResult getTransaction(String externalId, String requestId) {
     return exchange(

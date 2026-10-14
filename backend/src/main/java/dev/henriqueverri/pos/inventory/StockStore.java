@@ -38,7 +38,7 @@ class StockStore {
       LEFT JOIN users u ON u.id = m.user_id
       """;
 
-  record Stock(boolean tracked, int quantity) {}
+  record Stock(String sku, boolean tracked, int quantity, int min) {}
 
   record SoldLine(UUID productId, int quantity) {}
 
@@ -62,9 +62,20 @@ class StockStore {
   }
 
   Optional<Stock> stock(UUID productId) {
-    return jdbc.sql("SELECT track_stock, stock_quantity FROM products WHERE id = :productId")
+    return jdbc.sql(
+            """
+            SELECT sku, track_stock, stock_quantity, stock_min
+            FROM products
+            WHERE id = :productId
+            """)
         .param("productId", productId, Types.OTHER)
-        .query((rs, row) -> new Stock(rs.getBoolean("track_stock"), rs.getInt("stock_quantity")))
+        .query(
+            (rs, row) ->
+                new Stock(
+                    rs.getString("sku"),
+                    rs.getBoolean("track_stock"),
+                    rs.getInt("stock_quantity"),
+                    rs.getInt("stock_min")))
         .optional();
   }
 

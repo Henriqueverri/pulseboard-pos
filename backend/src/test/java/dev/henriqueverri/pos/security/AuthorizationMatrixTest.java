@@ -22,7 +22,8 @@ import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 /**
  * The role matrix of the plan: CASHIER operates the till (customers, orders, pay, cancel) and reads
- * the catalog; only ADMIN creates/updates products and refunds orders.
+ * the catalog and stock history; only ADMIN creates/updates products, moves stock and refunds
+ * orders.
  */
 class AuthorizationMatrixTest extends ApiIntegrationTest {
 
@@ -56,6 +57,23 @@ class AuthorizationMatrixTest extends ApiIntegrationTest {
 
     as(Role.CASHIER, get("/api/products?q=PB-001")).andExpect(status().isOk());
     as(Role.CASHIER, get("/api/products/" + id)).andExpect(status().isOk());
+  }
+
+  @Test
+  void onlyAdminMovesStockButTheCashierSeesIt() throws Exception {
+    String id = createTrackedProduct(unique("STK"), 0, 0).get("id").asText();
+    String receipt = "{\"kind\":\"RECEIPT\",\"quantity\":5}";
+
+    as(Role.CASHIER, jsonBody(post("/api/products/" + id + "/stock-movements"), receipt))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("forbidden"));
+    as(Role.ADMIN, jsonBody(post("/api/products/" + id + "/stock-movements"), receipt))
+        .andExpect(status().isCreated());
+
+    as(Role.CASHIER, get("/api/products/" + id + "/stock-movements"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1));
+    as(Role.CASHIER, get("/api/products?lowStock=true")).andExpect(status().isOk());
   }
 
   @Test
@@ -142,6 +160,8 @@ class AuthorizationMatrixTest extends ApiIntegrationTest {
         Arguments.of(HttpMethod.GET, "/api/products/" + id),
         Arguments.of(HttpMethod.POST, "/api/products"),
         Arguments.of(HttpMethod.PUT, "/api/products/" + id),
+        Arguments.of(HttpMethod.GET, "/api/products/" + id + "/stock-movements"),
+        Arguments.of(HttpMethod.POST, "/api/products/" + id + "/stock-movements"),
         Arguments.of(HttpMethod.GET, "/api/customers"),
         Arguments.of(HttpMethod.POST, "/api/customers"),
         Arguments.of(HttpMethod.PUT, "/api/customers/" + id),

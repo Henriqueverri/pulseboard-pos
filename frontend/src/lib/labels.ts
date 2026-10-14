@@ -5,6 +5,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   Role,
+  StockMovementKind,
 } from '../api/types'
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
@@ -36,6 +37,13 @@ export const FAILURE_KIND_LABELS: Record<FailureKind, string> = {
   PERMANENT: 'rejeitado',
   EXHAUSTED: 'tentativas esgotadas',
   CONFIGURATION: 'configuração',
+}
+
+export const STOCK_MOVEMENT_LABELS: Record<StockMovementKind, string> = {
+  SALE: 'Venda',
+  REFUND: 'Estorno',
+  RECEIPT: 'Entrada',
+  ADJUSTMENT: 'Ajuste',
 }
 
 export const EVENT_TYPE_LABELS: Record<IntegrationEventType, string> = {

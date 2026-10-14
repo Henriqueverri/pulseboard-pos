@@ -73,6 +73,41 @@ describe('checkout', () => {
     expect(screen.queryByText('Mouse Antigo')).not.toBeInTheDocument()
   })
 
+  it('shows the balance and does not add a product out of stock', async () => {
+    renderApp('/', { as: 'CASHIER' })
+
+    expect(await screen.findByText('3 em estoque')).toBeInTheDocument()
+    expect(screen.getByText('Sem estoque')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Adicionar Água sem gás' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Adicionar Cerveja Long Neck' })).toBeEnabled()
+  })
+
+  it('short of stock: names the products, cancels the order and keeps the cart', async () => {
+    const { user } = renderApp('/', { as: 'CASHIER' })
+    await addProduct(user, 'Cerveja Long Neck')
+    await user.click(screen.getByRole('button', { name: 'Aumentar Cerveja Long Neck' }))
+    await user.click(screen.getByRole('button', { name: 'Aumentar Cerveja Long Neck' }))
+    await user.click(screen.getByRole('button', { name: 'Aumentar Cerveja Long Neck' }))
+    await addProduct(user, 'Fone Bluetooth Essential')
+    await pickCustomer(user)
+    await user.click(screen.getByRole('button', { name: 'Finalizar venda' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Pagamento' })
+    await user.click(within(dialog).getByLabelText('Pix'))
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar pagamento' }))
+
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert).toHaveTextContent('Sem saldo para concluir a venda')
+    expect(alert).toHaveTextContent('Cerveja Long Neck: Restam 3 unidades.')
+    expect(alert).not.toHaveTextContent('Fone Bluetooth Essential')
+    await waitFor(() => expect(db.orders[0].status).toBe('CANCELED'))
+    expect(db.movements).toHaveLength(0)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Voltar' }))
+    expect(
+      screen.getByRole('spinbutton', { name: 'Quantidade de Cerveja Long Neck' }),
+    ).toHaveValue(4)
+  })
+
   it('validates the cart before opening the payment', async () => {
     const { user } = renderApp('/', { as: 'CASHIER' })
 

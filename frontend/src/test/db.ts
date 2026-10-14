@@ -6,6 +6,7 @@ import type {
   OrderStatus,
   Product,
   Role,
+  StockMovement,
   User,
 } from '../api/types'
 import { centsToMoneyString, moneyToCents } from '../lib/money'
@@ -31,16 +32,47 @@ export const users: Record<Role, User> = {
 
 export const PASSWORD = 'secret-password'
 
-function product(id: string, sku: string, name: string, price: string, active = true): Product {
-  return { id, sku, name, price, active, createdAt: NOW, updatedAt: NOW }
+function product(
+  id: string,
+  sku: string,
+  name: string,
+  price: string,
+  { active = true, stock }: { active?: boolean; stock?: { quantity: number; min: number } } = {},
+): Product {
+  return {
+    id,
+    sku,
+    name,
+    price,
+    active,
+    trackStock: Boolean(stock),
+    stockQuantity: stock?.quantity ?? 0,
+    stockMin: stock?.min ?? 0,
+    lowStock: false,
+    createdAt: NOW,
+    updatedAt: NOW,
+  }
 }
 
 function initialProducts(): Product[] {
   return [
     product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a01', 'PB-001-ESS', 'Fone Bluetooth Essential', '79.90'),
     product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a02', 'PB-002-PRO', 'Teclado Mecânico Pro', '249.90'),
-    product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a03', 'PB-003-OLD', 'Mouse Antigo', '19.90', false),
-  ]
+    product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a03', 'PB-003-OLD', 'Mouse Antigo', '19.90', {
+      active: false,
+    }),
+    product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a04', 'BAR-001', 'Cerveja Long Neck', '12.00', {
+      stock: { quantity: 3, min: 5 },
+    }),
+    product('8f1d2c3b-4a5e-4f60-9a1b-2c3d4e5f6a05', 'BAR-002', 'Água sem gás', '5.00', {
+      stock: { quantity: 0, min: 2 },
+    }),
+  ].map(withLowStock)
+}
+
+/** What the API computes for every product it returns. */
+export function withLowStock(item: Product): Product {
+  return { ...item, lowStock: item.trackStock && item.stockQuantity <= item.stockMin }
 }
 
 function initialCustomers(): Customer[] {
@@ -135,6 +167,7 @@ export const db = {
   events: [] as IntegrationEvent[],
   nextSequence: 1,
   integration: initialIntegration(),
+  movements: [] as StockMovement[],
 }
 
 export function resetDb(): void {
@@ -143,6 +176,7 @@ export function resetDb(): void {
   db.orders = []
   db.nextNumber = 1001
   db.events = []
+  db.movements = []
   db.nextSequence = 1
   db.integration = initialIntegration()
 }
@@ -198,6 +232,38 @@ export function createOrderInDb(
   }
   db.orders.push(order)
   return order
+}
+
+/**
+ * Moves the balance of a product with stock control and records the movement, like the API.
+ * Returns false (and changes nothing) when the balance would go negative.
+ */
+export function moveStock(
+  productId: string,
+  kind: StockMovement['kind'],
+  quantity: number,
+  extra: Partial<StockMovement> = {},
+): boolean {
+  const index = db.products.findIndex((candidate) => candidate.id === productId)
+  const found = db.products[index]
+  if (!found.trackStock || found.stockQuantity + quantity < 0) {
+    return false
+  }
+  db.products[index] = withLowStock({ ...found, stockQuantity: found.stockQuantity + quantity })
+  db.movements.unshift({
+    id: crypto.randomUUID(),
+    productId,
+    kind,
+    quantity,
+    balanceAfter: found.stockQuantity + quantity,
+    orderId: null,
+    orderNumber: null,
+    reason: null,
+    userName: users.ADMIN.name,
+    createdAt: NOW,
+    ...extra,
+  })
+  return true
 }
 
 export function updateOrder(id: string, changes: Partial<Order>): Order {

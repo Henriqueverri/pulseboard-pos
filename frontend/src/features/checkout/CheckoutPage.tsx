@@ -15,7 +15,7 @@ import { formatCents, formatMoney } from '../../lib/money'
 import { Cart } from './Cart'
 import { cartReducer, cartTotals, emptyCart, type CartState } from './cartReducer'
 import { CustomerPicker } from './CustomerPicker'
-import { PaymentDialog } from './PaymentDialog'
+import { PaymentDialog, type StockShortage } from './PaymentDialog'
 import { ProductSearch } from './ProductSearch'
 import { checkoutSchema, type CheckoutInput } from './schema'
 
@@ -39,6 +39,18 @@ function issuesOf(result: { success: false; error: { issues: { message: string }
 
 const cartSchema = checkoutSchema.omit({ paymentMethod: true })
 
+/** The cart lines named in an {@code insufficient_stock} error (keyed by SKU), with what is left. */
+function stockShortages(error: unknown, cart: CartState): StockShortage[] {
+  if (!(error instanceof ApiError) || error.code !== 'insufficient_stock') {
+    return []
+  }
+  return Object.entries(error.errors).map(([sku, messages]) => ({
+    sku,
+    name: cart.items.find((item) => item.sku === sku)?.name ?? sku,
+    message: messages.join(' '),
+  }))
+}
+
 export function CheckoutPage() {
   const queryClient = useQueryClient()
   const [cart, dispatch] = useReducer(cartReducer, emptyCart)
@@ -57,6 +69,11 @@ export function CheckoutPage() {
         if (payError instanceof ApiError && payError.status === 401) {
           throw payError
         }
+        if (payError instanceof ApiError && payError.code === 'insufficient_stock') {
+          // Nothing was sold: the cashier fixes the cart and tries again with a new order.
+          await ordersApi.cancel(order.id).catch(() => undefined)
+          throw payError
+        }
         return { order, payError }
       }
     },
@@ -65,8 +82,11 @@ export function CheckoutPage() {
       setPaying(false)
       setResult(outcome)
       await queryClient.invalidateQueries({ queryKey: ['orders', 'list'] })
+      await queryClient.invalidateQueries({ queryKey: ['products'] })
     },
+    onError: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
   })
+  const shortages = stockShortages(checkout.error, cart)
 
   function startPayment() {
     const parsed = cartSchema.safeParse(toCheckoutInput(cart, null))
@@ -219,6 +239,7 @@ export function CheckoutPage() {
         onPaymentMethodChange={setPaymentMethod}
         issues={issues}
         error={checkout.error}
+        shortages={shortages}
         submitting={checkout.isPending}
         onConfirm={confirmPayment}
         onClose={() => setPaying(false)}

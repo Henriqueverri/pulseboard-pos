@@ -84,11 +84,13 @@ public class OrderController {
   }
 
   @PostMapping("/{id}/pay")
-  @Operation(summary = "Paga um pedido PENDING")
+  @Operation(summary = "Paga um pedido PENDING e baixa o estoque dos produtos controlados")
   @ApiResponse(responseCode = "200", description = "Pedido pago")
   @ApiResponse(
       responseCode = "409",
-      description = "invalid_order_transition ou concurrent_modification",
+      description =
+          "invalid_order_transition, concurrent_modification ou insufficient_stock (SKUs sem"
+              + " saldo em errors; o pedido continua PENDING)",
       content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
   public OrderResponse pay(@PathVariable UUID id, @Valid @RequestBody PayOrderRequest request) {
     return service.pay(id, request.paymentMethod());

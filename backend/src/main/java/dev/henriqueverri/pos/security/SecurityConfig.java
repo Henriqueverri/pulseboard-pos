@@ -26,7 +26,7 @@ import org.springframework.security.web.SecurityFilterChain;
  *
  * <ul>
  *   <li>public: login, health, OpenAPI/Swagger;
- *   <li>ADMIN only: create/update products and refund orders;
+ *   <li>ADMIN only: create/update products, record stock movements and refund orders;
  *   <li>any authenticated user (ADMIN or CASHIER): everything else under {@code /api}.
  * </ul>
  */
@@ -59,6 +59,8 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.POST, "/api/products")
                     .hasRole(ADMIN)
                     .requestMatchers(HttpMethod.PUT, "/api/products/*")
+                    .hasRole(ADMIN)
+                    .requestMatchers(HttpMethod.POST, "/api/products/*/stock-movements")
                     .hasRole(ADMIN)
                     .requestMatchers(HttpMethod.POST, "/api/orders/*/refund")
                     .hasRole(ADMIN)

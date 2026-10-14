@@ -123,6 +123,30 @@ public abstract class ApiIntegrationTest {
     return json(postJson("/api/orders", body).andExpect(status().isCreated()));
   }
 
+  /** A new product with stock control and {@code stock} units received. */
+  protected JsonNode createTrackedProduct(String sku, int stock, int min) throws Exception {
+    String body =
+        "{\"sku\":\"%s\",\"name\":\"Cerveja %s\",\"price\":\"12.00\",\"active\":true,"
+                .formatted(sku, sku)
+            + "\"trackStock\":true,\"stockMin\":%d}".formatted(min);
+    JsonNode created = json(postJson("/api/products", body).andExpect(status().isCreated()));
+    if (stock > 0) {
+      stockMovement(
+              UUID.fromString(created.get("id").asText()),
+              "{\"kind\":\"RECEIPT\",\"quantity\":" + stock + "}")
+          .andExpect(status().isCreated());
+    }
+    return created;
+  }
+
+  protected ResultActions stockMovement(UUID productId, String body) throws Exception {
+    return postJson("/api/products/" + productId + "/stock-movements", body);
+  }
+
+  protected int stockOf(UUID productId) throws Exception {
+    return json(getJson("/api/products/" + productId)).get("stockQuantity").asInt();
+  }
+
   protected JsonNode createPendingOrder() throws Exception {
     UUID product = seededProductId("PB-001-ESS");
     return createOrder(createCustomer(), "[{\"productId\":\"" + product + "\",\"quantity\":1}]");
